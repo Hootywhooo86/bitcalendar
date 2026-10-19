@@ -1,7 +1,6 @@
 // Dialogs: event details + editor, task editor, accounts, settings, Google setup.
 import * as D from './dates.js';
 import * as G from './google.js';
-import * as L from './local.js';
 import { store } from './store.js';
 import { esc } from './views.js';
 
@@ -66,7 +65,6 @@ const RSVP = { accepted: 'GOING', tentative: 'MAYBE', declined: 'NOT GOING', nee
 
 export function openEvent(ev, onEdit) {
   const cal = store.calendar(ev.calKey);
-  const acc = store.account(cal.account);
   const desc = ev.description ? textOf(ev.description).trim() : '';
   const m = openModal(`
     <div class="dhead" style="--c:${esc(ev.color)}"><h2>${esc(ev.title)}</h2></div>
@@ -76,7 +74,7 @@ export function openEvent(ev, onEdit) {
     ${desc ? `<div class="ddesc">${linkify(desc)}</div>` : ''}
     ${ev.attendees?.length ? `<div class="dguests"><h3>GUESTS (${ev.attendees.length})</h3>${ev.attendees.map(a =>
       `<p><span class="rs ${esc(a.responseStatus)}"></span>${esc(a.displayName || a.email)}${a.organizer ? ' · HOST' : ''}</p>`).join('')}</div>` : ''}
-    <p class="drow dim"><span class="sq" style="background:${esc(cal.color)}"></span>${esc(cal.name)}${acc.email && acc.email !== cal.name ? ` · ${esc(acc.email)}` : ''}</p>
+    <p class="drow dim"><span class="sq" style="background:${esc(cal.color)}"></span>${esc(cal.name)}${ev.ext?.email ? ` · FROM GOOGLE (${esc(ev.ext.email)})` : ''}</p>
     ${ev.selfStatus && !ev.organizer?.self ? `<div class="rsvp"><span>GOING?</span>${['accepted', 'tentative', 'declined'].map(s =>
       `<button class="btn${ev.selfStatus === s ? ' primary' : ''}" data-rsvp="${s}">${RSVP[s]}</button>`).join('')}</div>` : ''}
     <div class="mbtns">
@@ -90,7 +88,7 @@ export function openEvent(ev, onEdit) {
     if (rsvp) { if (await run(() => store.rsvp(ev, rsvp), `REPLIED: ${RSVP[rsvp]}`)) closeModal(m); }
     if (act === 'close') closeModal(m);
     if (act === 'edit') { closeModal(m); onEdit(ev); }
-    if (act === 'copy') { closeModal(m); openEditor(null, { ...ev, title: ev.title, seriesId: null }); }
+    if (act === 'copy') { closeModal(m); openEditor(null, { ...ev, seriesId: null, rrule: null }); }
     if (act === 'delete') {
       const scope = ev.seriesId ? await askScope('DELETE') : await choose('DELETE EVENT?', ev.title, [{ label: 'DELETE', value: 'all', danger: true }]);
       if (scope && await run(() => store.deleteEvent(ev, scope), 'EVENT DELETED')) closeModal(m);
@@ -118,25 +116,22 @@ function simpleRule(rrule, start) {
 export function openEditor(orig, preset = {}) {
   const src = orig || preset;
   const cals = store.writableCalendars();
-  if (!cals.length) return toast('No calendar you can write to. Reconnect your Google account.');
+  if (!cals.length) return toast('No calendar to add to yet');
   const lastCal = store.calendar(store.settings.lastCal);
   const calKey = src.calKey && store.calendar(src.calKey)?.writable ? src.calKey
-    : (lastCal && cals.includes(lastCal) ? lastCal.key : (cals.find(c => c.primary) || cals[0]).key);
+    : (lastCal && cals.includes(lastCal) ? lastCal.key : (cals.find(c => !c.ext) || cals[0]).key);
   const allDay = !!src.allDay;
   const start = src.start || D.withTime(new Date(), (D.minutesOfDay(new Date()) / 30 + 1 | 0) * 30);
   const end = src.end || (allDay ? D.addDays(start, 1) : D.addMinutes(start, store.settings.duration));
   const endShown = allDay ? D.addDays(end, -1) : end;
-  const reminder = src.reminder !== undefined ? src.reminder : null;
-  const calOpts = store.accounts.map(a => {
-    const cs = cals.filter(c => c.account === a.key);
-    return cs.length ? `<optgroup label="${esc(a.email || a.name)}">${cs.map(c => `<option value="${esc(c.key)}"${c.key === calKey ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>` : '';
-  }).join('');
+  const calOpts = store.groups('events').map(g =>
+    `<optgroup label="${esc(g.label)}">${g.items.map(c => `<option value="${esc(c.key)}"${c.key === calKey ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>`).join('');
   const colors = [['', 'var(--cal)'], ...Object.entries(G.EVENT_COLORS)];
 
   const m = openModal(`<form class="editor" novalidate>
     <h2>${orig ? 'EDIT EVENT' : 'NEW EVENT'}</h2>
     <input name="title" class="big" placeholder="WHAT'S THE QUEST?" value="${esc(src.title || '')}" maxlength="500" required>
-    <label class="field"><span>CALENDAR</span><select name="cal"${orig?.seriesId ? ' disabled title="Repeating events stay on their calendar"' : ''}>${calOpts}</select></label>
+    <label class="field"><span>CALENDAR</span><select name="cal">${calOpts}</select></label>
     <label class="check"><input type="checkbox" name="allDay"${allDay ? ' checked' : ''}><span></span>ALL DAY</label>
     <div class="when">
       <label class="field"><span>START</span><input type="date" name="sdate" value="${D.ymd(start)}" required><input type="time" name="stime" value="${D.hm(start)}" step="300"></label>
@@ -160,38 +155,22 @@ export function openEditor(orig, preset = {}) {
   const el = n => f.elements[n];
 
   const setCalColor = () => f.style.setProperty('--cal', store.calendar(el('cal').value).color);
+  // New events start with their calendar's usual reminder.
   const fillReminders = keep => {
-    const google = store.calendar(el('cal').value).account !== 'local';
-    const cur = keep ?? el('reminder').value;
-    el('reminder').innerHTML = `<option value="none">NONE</option>${google ? '<option value="default">CALENDAR DEFAULT</option>' : ''}`
-      + REMINDERS.map(([v, l]) => `<option value="${v}">${l} BEFORE</option>`).join('');
-    el('reminder').value = [...el('reminder').options].some(o => o.value === String(cur)) ? String(cur) : (google ? 'default' : '10');
+    const cur = keep ?? String(store.calendar(el('cal').value).defaultReminder ?? 10);
+    el('reminder').innerHTML = '<option value="none">NONE</option>' + REMINDERS.map(([v, l]) => `<option value="${v}">${l} BEFORE</option>`).join('');
+    if (![...el('reminder').options].some(o => o.value === cur)) el('reminder').insertAdjacentHTML('beforeend', `<option value="${esc(cur)}">${esc(cur)} MIN BEFORE</option>`);
+    el('reminder').value = cur;
   };
   const syncAllDay = () => m.querySelectorAll('input[type=time]').forEach(i => i.hidden = el('allDay').checked);
   setCalColor();
-  fillReminders(orig ? (reminder == null ? 'none' : reminder) : null);
+  fillReminders(orig || src.reminder !== undefined ? (src.reminder == null ? 'none' : String(src.reminder === 'default' ? store.calendar(calKey).defaultReminder ?? 10 : src.reminder)) : null);
   syncAllDay();
 
-  // Load the series' repeat rule so the REPEAT box shows it.
-  let initialRepeat = '', original = null;
-  if (orig?.seriesId) {
-    el('repeat').disabled = true;
-    (async () => {
-      const cal = store.calendar(orig.calKey);
-      let rule = '';
-      if (cal.account === 'local') rule = L.getSeries(orig.seriesId)?.rrule || '';
-      else {
-        const acc = store.account(cal.account);
-        const master = await G.getEvent(acc, cal.id, orig.seriesId).catch(() => null);
-        original = master?.recurrence || null;
-        rule = (original || []).find(r => r.startsWith('RRULE:')) || '';
-      }
-      initialRepeat = rule ? simpleRule(rule, orig.start) : '';
-      if (initialRepeat === 'custom') el('repeat').insertAdjacentHTML('beforeend', '<option value="custom">CUSTOM (KEEP AS IS)</option>');
-      el('repeat').value = initialRepeat;
-      el('repeat').disabled = false;
-    })();
-  }
+  // Show the series' repeat rule. Rules the box can't show stay exactly as they are.
+  const initialRepeat = orig?.seriesId && orig.rrule ? simpleRule(orig.rrule, orig.start) : '';
+  if (initialRepeat === 'custom') el('repeat').insertAdjacentHTML('beforeend', '<option value="custom">CUSTOM (KEEP AS IS)</option>');
+  el('repeat').value = initialRepeat;
 
   // Moving the start drags the end along, keeping the length.
   const readStart = () => new Date(`${el('sdate').value}T${el('allDay').checked ? '00:00' : el('stime').value || '00:00'}`);
@@ -211,7 +190,7 @@ export function openEditor(orig, preset = {}) {
   el('sdate').addEventListener('change', onStart);
   el('stime').addEventListener('change', onStart);
   el('allDay').addEventListener('change', () => { syncAllDay(); prevStart = readStart(); });
-  el('cal').addEventListener('change', () => { setCalColor(); fillReminders(); });
+  el('cal').addEventListener('change', () => { setCalColor(); if (!orig) fillReminders(); });
 
   m.addEventListener('click', async e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
@@ -236,11 +215,9 @@ export function openEditor(orig, preset = {}) {
       calKey: el('cal').value, title: el('title').value.trim(), allDay: el('allDay').checked, start, end,
       location: el('location').value.trim(), description: el('description').value,
       colorId: f.elements.color.value || null,
-      reminder: rv === 'none' ? null : rv === 'default' ? 'default' : +rv,
+      reminder: rv === 'none' ? null : +rv,
     };
-    if (orig?.seriesId && repeat === initialRepeat) {
-      if (original) draft.recurrence = original; // keep Google's exact rule (end dates, skipped days)
-    } else if (repeat !== 'custom') draft.rrule = repeat || null;
+    if (repeat !== initialRepeat && repeat !== 'custom') draft.rrule = repeat || null;
     let scope = 'all';
     if (orig?.seriesId && repeat === initialRepeat) {
       scope = await askScope('EDIT');
@@ -257,13 +234,11 @@ export function openEditor(orig, preset = {}) {
 // ---- tasks ----
 
 export function openTaskEditor(task, preset = {}) {
-  const lists = store.taskLists.filter(l => !store.account(l.account)?.expired);
   const src = task || preset;
-  const listKey = src.listKey || store.settings.lastList || lists[0]?.key;
-  const opts = store.accounts.map(a => {
-    const ls = lists.filter(l => l.account === a.key);
-    return ls.length ? `<optgroup label="${esc(a.email || a.name)}">${ls.map(l => `<option value="${esc(l.key)}"${l.key === listKey ? ' selected' : ''}>${esc(l.title)}</option>`).join('')}</optgroup>` : '';
-  }).join('');
+  const last = store.taskList(store.settings.lastList);
+  const listKey = src.listKey || last?.key || (store.taskLists.find(l => !l.ext) || store.taskLists[0])?.key;
+  const opts = store.groups('tasks').map(g =>
+    `<optgroup label="${esc(g.label)}">${g.items.map(l => `<option value="${esc(l.key)}"${l.key === listKey ? ' selected' : ''}>${esc(l.title)}</option>`).join('')}</optgroup>`).join('');
   const m = openModal(`<form class="editor" novalidate>
     <h2>${task ? 'EDIT TASK' : 'NEW TASK'}</h2>
     <input name="title" class="big" placeholder="WHAT NEEDS DOING?" value="${esc(src.title || '')}" required>
@@ -297,44 +272,147 @@ export function openTaskEditor(task, preset = {}) {
 // ---- accounts / settings / setup ----
 
 export function connect(hint) {
+  if (!store.cloud) {
+    toast('Sign in to your 128bit account first, then Google can pour in');
+    return openSignIn();
+  }
   if (!store.clientId()) return openSetup();
   if (!G.gisReady()) { G.loadGis().catch(() => {}); return toast('Google sign-in is still loading, tap again in a sec'); }
   return run(async () => {
     const acc = await store.connectGoogle(hint);
-    toast(`CONNECTED ${acc.email}`);
+    toast(`${acc.email} IS IN · KEEPS SYNCING WHILE BITCALENDAR IS OPEN`);
+  });
+}
+
+export function openSignIn() {
+  const m = openModal(`<form class="editor" novalidate>
+    <h2>128BIT ACCOUNT</h2>
+    <p class="mtext">One account for every 128bit app (same as 128bit Play and Tracker). Your calendars, events and tasks sync to every device you sign in on.</p>
+    <label class="field"><span>EMAIL</span><input name="email" type="email" autocomplete="email" required></label>
+    <label class="field"><span>PASSWORD</span><input name="password" type="password" autocomplete="current-password" minlength="6"></label>
+    <p class="err" hidden></p>
+    <div class="mbtns">
+      <button type="button" class="btn" data-act="link">EMAIL ME A LINK</button>
+      <button type="button" class="btn" data-act="up">CREATE ACCOUNT</button>
+      <button type="submit" class="btn primary">SIGN IN</button>
+    </div></form>`, 'small');
+  const f = $('form', m);
+  const err = msg => { const e = $('.err', f); e.textContent = msg; e.hidden = !msg; };
+  const email = () => f.elements.email.value.trim();
+  const busy = async (btn, fn) => {
+    err('');
+    if (!/^\S+@\S+\.\S+$/.test(email())) return err('TYPE YOUR EMAIL');
+    btn.disabled = true;
+    try { await fn(); } catch (e) { err(e.message); } finally { btn.disabled = false; }
+  };
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    busy($('[type=submit]', f), async () => {
+      if (!f.elements.password.value) throw new Error('TYPE YOUR PASSWORD, OR GET A LINK BY EMAIL');
+      await store.signIn(email(), f.elements.password.value);
+      closeModal(m);
+      toast('SIGNED IN');
+    });
+  });
+  m.addEventListener('click', e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'link') busy(e.target, async () => { await store.sendLink(email()); err(''); $('.mtext', f).textContent = `Check ${email()} for a sign-in link. Open it on this device.`; });
+    if (act === 'up') busy(e.target, async () => {
+      if (f.elements.password.value.length < 6) throw new Error('PICK A PASSWORD (6+ CHARACTERS)');
+      const r = await store.signUp(email(), f.elements.password.value);
+      if (r.confirm) $('.mtext', f).textContent = `Almost there: confirm the email we sent to ${email()}, then sign in.`;
+      else { closeModal(m); toast('ACCOUNT MADE · WELCOME'); }
+    });
   });
 }
 
 export function openAccounts(openSettingsFn) {
+  const u = store.user;
   const gs = store.googleAccounts();
   const m = openModal(`<h2>ACCOUNTS</h2>
     <div class="accts">
+      <div class="acct"><span class="ph local">&#9635;</span><div>
+        <b>${u ? esc(u.email) : 'NOT SIGNED IN'}</b>
+        <small class="${u ? 'ok' : 'warn'}">${u ? '128BIT ACCOUNT · SYNCS EVERYWHERE' : 'EVERYTHING IS ONLY ON THIS DEVICE'}</small></div>
+        <div class="aact">${u ? '<button class="btn" data-act="out">SIGN OUT</button>' : '<button class="btn primary" data-act="in">SIGN IN</button>'}</div>
+      </div>
+      <h3 class="sub">GOOGLE (FEEDING IN)</h3>
       ${gs.map(a => `<div class="acct">
         ${a.picture ? `<img src="${esc(a.picture)}" alt="" referrerpolicy="no-referrer">` : '<span class="ph">G</span>'}
-        <div><b>${esc(a.name)}</b><small>${esc(a.email)}</small><small class="${a.expired ? 'warn' : 'ok'}">${a.expired ? 'SIGNED OUT · RECONNECT TO SYNC' : `SYNCING ${store.calendars.filter(c => c.account === a.key).length} CALENDARS${a.tasksOk === false ? ' · NO TASKS ACCESS' : ''}`}</small></div>
-        <div class="aact">${a.expired || a.tasksOk === false ? `<button class="btn primary" data-re="${esc(a.email)}">RECONNECT</button>` : ''}<button class="btn" data-out="${esc(a.key)}">REMOVE</button></div>
-      </div>`).join('') || '<p class="none">no google accounts yet. connect one to see your calendars and tasks.</p>'}
-      <div class="acct"><span class="ph local">&#9635;</span><div><b>ON THIS DEVICE</b><small>events & quests kept in this browser</small></div></div>
+        <div><b>${esc(a.email)}</b><small class="${a.expired ? 'warn' : 'ok'}">${a.expired ? 'SIGNED OUT · RECONNECT TO KEEP SYNCING' : esc(a.status || 'CONNECTED')}${a.tasksOk === false ? ' · NO TASKS ACCESS' : ''}</small></div>
+        <div class="aact">${a.expired || a.tasksOk === false ? `<button class="btn primary" data-re="${esc(a.email)}">RECONNECT</button>` : `<button class="btn" data-sync="${esc(a.email)}"${a.syncing ? ' disabled' : ''}>SYNC NOW</button>`}<button class="btn" data-out="${esc(a.email)}">REMOVE</button></div>
+      </div>`).join('') || `<p class="none">${u ? 'connect google to copy in your calendars + tasks. it keeps feeding in new invites until you remove it.' : 'sign in first, then connect google to bring everything over.'}</p>`}
     </div>
     <div class="mbtns"><button class="btn" data-act="settings">SETTINGS</button><button class="btn primary" data-act="add">+ CONNECT GOOGLE</button><button class="btn" data-act="close">CLOSE</button></div>`);
+  const reopen = () => { closeModal(m); openAccounts(openSettingsFn); };
   m.addEventListener('click', async e => {
     const t = e.target.closest('button');
     if (!t) return;
-    if (t.dataset.re) { await connect(t.dataset.re); closeModal(m); }
+    if (t.dataset.re) { closeModal(m); await connect(t.dataset.re); }
+    if (t.dataset.sync) { t.disabled = true; await store.syncGoogle(store.googleAccount(t.dataset.sync)); reopen(); }
     if (t.dataset.out) {
-      const a = store.account(t.dataset.out);
-      if (await choose('REMOVE ACCOUNT?', `${a.email} will stop syncing here. Nothing is deleted from Google.`, [{ label: 'REMOVE', value: 1, danger: true }])) {
-        store.disconnect(a.key); closeModal(m); openAccounts(openSettingsFn);
-      }
+      const email = t.dataset.out;
+      const how = await choose('REMOVE GOOGLE ACCOUNT?', `${email} stops syncing. Nothing changes in Google.`, [
+        { label: 'KEEP ITS EVENTS HERE', value: 'keep', primary: true },
+        { label: 'REMOVE THEM TOO', value: 'drop', danger: true },
+      ]);
+      if (how && await run(() => store.disconnectGoogle(email, how === 'drop'), 'GOOGLE REMOVED')) reopen();
     }
-    if (t.dataset.act === 'add') { const ok = await connect(); if (ok !== undefined) closeModal(m); }
+    if (t.dataset.act === 'in') { closeModal(m); openSignIn(); }
+    if (t.dataset.act === 'out' && await choose('SIGN OUT?', 'Your calendar stays in your 128bit account. This device goes back to its own calendar.', [{ label: 'SIGN OUT', value: 1, danger: true }])) {
+      await run(() => store.signOut(), 'SIGNED OUT'); closeModal(m);
+    }
+    if (t.dataset.act === 'add') { closeModal(m); await connect(); }
     if (t.dataset.act === 'settings') { closeModal(m); openSettingsFn(); }
     if (t.dataset.act === 'close') closeModal(m);
   });
 }
 
+const PALETTE = ['#ff9f1c', '#b388ff', '#7ae7bf', '#46d6db', '#5484ed', '#ff887c', '#f691b2', '#fbd75b', '#51b749', '#dc2127', '#e1e1e1', '#cd74e6'];
+
+export function openCalendarEditor(cal, kind = 'events') {
+  if (!store.cloud) { toast('Sign in to make more calendars'); return openSignIn(); }
+  kind = cal?.title !== undefined ? 'tasks' : kind;
+  const name = cal ? (cal.name ?? cal.title) : '';
+  const color = cal?.color || (kind === 'tasks' ? '#b388ff' : PALETTE[(store.calendars.length) % PALETTE.length]);
+  const m = openModal(`<form class="editor" novalidate>
+    <h2>${cal ? 'EDIT' : 'NEW'} ${kind === 'tasks' ? 'TASK LIST' : 'CALENDAR'}</h2>
+    <input name="name" class="big" placeholder="${kind === 'tasks' ? 'GROCERIES, CHORES...' : 'WORK, FAMILY, QUESTS...'}" value="${esc(name)}" maxlength="200" required>
+    <div class="field"><span>COLOR</span><div class="swatches">${PALETTE.concat(PALETTE.includes(color) ? [] : [color]).map(c =>
+      `<label><input type="radio" name="color" value="${c}"${c === color ? ' checked' : ''}><i style="background:${c}"></i></label>`).join('')}</div></div>
+    ${kind === 'events' ? `<label class="field"><span>USUAL REMINDER</span><select name="rem"><option value="">NONE</option>${REMINDERS.map(([v, l]) => `<option value="${v}">${l} BEFORE</option>`).join('')}</select></label>` : ''}
+    ${cal?.ext ? `<p class="mtext">Copied from Google (${esc(cal.ext.email)}). Changes there keep coming in until you remove that Google account.</p>` : ''}
+    <p class="err" hidden></p>
+    <div class="mbtns">
+      ${cal && !cal.ext ? '<button type="button" class="btn danger" data-act="delete">DELETE</button>' : ''}
+      <button type="button" class="btn" data-act="cancel">CANCEL</button>
+      <button type="submit" class="btn primary">SAVE</button>
+    </div></form>`, 'small');
+  const f = $('form', m);
+  if (f.elements.rem) f.elements.rem.value = cal ? String(cal.defaultReminder ?? '') : '10';
+  m.addEventListener('click', async e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'cancel') closeModal(m);
+    if (act === 'delete') {
+      const mine = kind === 'tasks' ? store.taskLists : store.calendars;
+      if (mine.filter(c => !c.ext).length < 2) return toast(`Keep at least one ${kind === 'tasks' ? 'task list' : 'calendar'}`);
+      if (await choose(`DELETE ${name}?`, `Everything in it is deleted on every device.`, [{ label: 'DELETE', value: 1, danger: true }])
+        && await run(() => store.deleteCalendar(cal), 'DELETED')) closeModal(m);
+    }
+  });
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const n = f.elements.name.value.trim();
+    if (!n) { const er = $('.err', f); er.textContent = 'GIVE IT A NAME'; er.hidden = false; return; }
+    const rem = f.elements.rem?.value;
+    const draft = { name: n, color: f.elements.color.value, kind, defaultReminder: rem ? +rem : null };
+    if (await run(() => store.saveCalendar(draft, cal), 'SAVED')) closeModal(m);
+  });
+}
+
 export function openSettings() {
   const s = store.settings;
+  const pushOk = 'serviceWorker' in navigator && 'PushManager' in window;
   const m = openModal(`<form class="editor">
     <h2>SETTINGS</h2>
     <div class="row2">
@@ -343,10 +421,12 @@ export function openSettings() {
     </div>
     <label class="field"><span>NEW EVENT LENGTH</span><select name="duration">${[15, 30, 45, 60, 90, 120].map(n => `<option value="${n}">${n} MIN</option>`).join('')}</select></label>
     <label class="check"><input type="checkbox" name="showTasks"${s.showTasks ? ' checked' : ''}><span></span>SHOW TASKS ON THE CALENDAR</label>
-    <label class="check"><input type="checkbox" name="notify"${s.notify ? ' checked' : ''}><span></span>REMINDER NOTIFICATIONS (WHILE OPEN)</label>
-    <label class="field"><span>GOOGLE CLIENT ID</span><input name="clientId" placeholder="${esc(window.BITCAL_CONFIG?.googleClientId || 'xxxx.apps.googleusercontent.com')}" value="${esc(s.clientId)}"></label>
+    <label class="check"><input type="checkbox" name="push"${s.push ? ' checked' : ''}${pushOk && store.cloud ? '' : ' disabled'}><span></span>PUSH REMINDERS ON THIS DEVICE (EVEN WHEN CLOSED)</label>
+    ${!store.cloud ? '<p class="mtext">Sign in to get push reminders.</p>' : !pushOk ? '<p class="mtext">This browser can\'t do push. On iPhone: Share → Add to Home Screen, then open Bitcalendar from there.</p>' : ''}
+    <label class="check"><input type="checkbox" name="notify"${s.notify ? ' checked' : ''}><span></span>POP-UP REMINDERS WHILE THE APP IS OPEN</label>
+    <label class="field"><span>GOOGLE CLIENT ID (FOR IMPORT)</span><input name="clientId" placeholder="${esc(window.BITCAL_CONFIG?.googleClientId || 'xxxx.apps.googleusercontent.com')}" value="${esc(s.clientId)}"></label>
     <div class="mbtns">
-      <button type="button" class="btn danger" data-act="wipe">CLEAR DEVICE CALENDAR</button>
+      ${store.cloud ? '' : '<button type="button" class="btn danger" data-act="wipe">CLEAR DEVICE CALENDAR</button>'}
       <button type="submit" class="btn primary">SAVE</button>
     </div></form>`);
   const f = $('form', m);
@@ -358,8 +438,15 @@ export function openSettings() {
       if (await Notification.requestPermission() !== 'granted') { f.elements.notify.checked = false; toast('Notifications are blocked in this browser'); }
     }
   });
+  f.elements.push.addEventListener('change', async () => {
+    const box = f.elements.push;
+    box.disabled = true;
+    const ok = await run(() => box.checked ? store.enablePush() : store.disablePush(), box.checked ? 'PUSH REMINDERS ON' : 'PUSH REMINDERS OFF');
+    if (!ok) box.checked = !box.checked;
+    box.disabled = false;
+  });
   m.addEventListener('click', async e => {
-    if (e.target.closest('[data-act=wipe]') && await choose('CLEAR DEVICE CALENDAR?', 'Deletes every event and quest saved in this browser. Google stays as it is.', [{ label: 'CLEAR', value: 1, danger: true }])) {
+    if (e.target.closest('[data-act=wipe]') && await choose('CLEAR DEVICE CALENDAR?', 'Deletes every event and quest saved in this browser.', [{ label: 'CLEAR', value: 1, danger: true }])) {
       store.wipeLocal(); toast('DEVICE CALENDAR CLEARED');
     }
   });
@@ -377,7 +464,7 @@ export function openSettings() {
 export function openSetup() {
   const m = openModal(`<h2>CONNECT GOOGLE</h2>
     <div class="mtext steps">
-      <p>Bitcalendar talks to Google straight from your browser. It needs an OAuth client ID once:</p>
+      <p>To copy your Google calendars + tasks in, Bitcalendar needs a Google OAuth client ID once:</p>
       <ol>
         <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud → Credentials</a> and make a project.</li>
         <li>Turn on the <b>Google Calendar API</b> and <b>Google Tasks API</b>.</li>

@@ -30,34 +30,47 @@ Bitcalendar is Daniel's 128bit-family take on the calendar: month view, events, 
 
 ## The web app (`app/`)
 
-Live at https://hootywhooo86.github.io/bitcalendar/app/ — a static page, no server or build step. Same look as the landing mock.
+Live at https://hootywhooo86.github.io/bitcalendar/app/ — a static page, no build step. Same look as the landing mock. **Bitcalendar is the calendar now:** your events live in your 128bit account; Google is just something it can copy from.
 
-- **Google accounts:** connect one or more Google accounts. Every calendar on each account shows up (colors, show/hide toggles), plus Google Tasks with due dates.
-- **Views:** month, week (3 days on phones), day, and list. The landing widget is the sidebar: mini month with event dots, the picked day's quests, and **Up next** with countdowns.
-- **Events:** create, edit, duplicate, delete; all-day or timed; repeat (daily / weekdays / weekly / monthly / yearly); reminders; Google event colors; location and notes. Repeating events ask "this event or all events". Drag events (and tasks) to a new day or time. Click an empty square or time slot to add one there. RSVP to invites, join links, open in Google.
-- **Tasks:** side panel grouped Overdue / Today / Upcoming / Someday / Done; add, tick off, edit, move between lists, delete.
-- **Search** across all calendars (a year either way), **keyboard shortcuts** (M W D A, T, N, ← →, /), browser **reminder notifications** while the app is open (Settings).
-- **On this device:** a built-in calendar and task list saved in the browser, so it works before anyone signs in.
+- **128bit account:** sign in (email + password, or an emailed link — same account as 128bit Play and Tracker). Calendars, events and tasks sync to every device, live. Signed out, it still works as a calendar on that one device, and whatever you add moves into your account when you sign in.
+- **Your own calendars + task lists:** make as many as you like (name, color, usual reminder); show/hide syncs too.
+- **Google feeds in:** connect a Google account and every calendar (yours, shared, subscribed), event and task list is copied in — repeats, skipped days and moved occurrences included. After that it pulls only what changed (new invites, edits) whenever Bitcalendar is open (on open, every 10 min, and SYNC). Anything you change or delete in Bitcalendar stays your way; Google won't overwrite it. Answering an invite (GOING / MAYBE / NOT GOING) goes back to Google so the organizer sees it. Remove the Google account when you're done with Google — keep the copied events or drop them.
+- **Views:** month, week (3 days on phones), day, list. Sidebar is the landing widget: mini month with dots, the day's quests, **Up next** countdowns.
+- **Events:** create, edit, duplicate, delete, drag to move; all-day or timed; repeats (daily / weekdays / weekly / monthly / yearly, and any Google rule is kept as-is); "this event or all events"; reminders; colors; location + notes. Times stay put across daylight saving.
+- **Tasks:** Overdue / Today / Upcoming / Someday / Done, on the calendar by due date.
+- **Install it:** it's a PWA — "Add to Home Screen" / "Install app". Opens offline with what the device last saw.
+- **Push reminders:** Settings → PUSH REMINDERS. Arrive even when the app is closed; tapping one opens the event. (iPhone: add to Home Screen first — iOS only allows push for installed web apps.)
+- Search, keyboard shortcuts (M W D A, T, N, ← →, /), and each new event goes onto the 128bit family feed as `event.created`.
+
+### Supabase setup (one time, project "128bit play")
+
+1. **SQL Editor:** run `supabase/bitcalendar.sql` (tables, row-level security, the Google-mirror functions, realtime).
+2. **Edge Functions:** deploy `supabase/functions/bitcal-reminders/` (`index.ts`, `push.js`, `reminders.js`, `recur.js`) with **Verify JWT on**. It makes its own push signing key on first run — nothing to paste.
+3. **SQL Editor:** run `supabase/bitcalendar-reminders.sql` (pg_cron calls the function every minute).
+4. **Authentication → URL Configuration → Redirect URLs:** add `https://hootywhooo86.github.io/bitcalendar/app/` so emailed sign-in links come back to the app.
+
+`config.js` already points at the project (URL + publishable key; neither is secret — row-level security does the protecting). `supabase/functions/bitcal-reminders/recur.js` is a copy of `app/js/recur.js`; keep them in step.
 
 ### Connect Google (one-time setup)
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create a project.
 2. **APIs & Services → Library:** enable **Google Calendar API** and **Google Tasks API**.
-3. **OAuth consent screen:** External; add the scopes `.../auth/calendar` and `.../auth/tasks`. While the app is in *Testing*, add each Google account that will sign in under **Test users** (Google requires verification before anyone else can use these scopes).
+3. **OAuth consent screen:** External; add the scopes `.../auth/calendar` and `.../auth/tasks`. While the app is in *Testing*, add each Google account that will sign in under **Test users**.
 4. **Credentials → Create credentials → OAuth client ID → Web application.** Under **Authorized JavaScript origins** add `https://hootywhooo86.github.io` (and `http://localhost:8000` for local testing).
-5. Put the client ID in `app/config.js` (`googleClientId`). It isn't a secret. Without it, the app asks for one in **Settings** / on **Connect Google**.
+5. Put the client ID in `app/config.js` (`googleClientId`). Without it, the app asks for one on **Connect Google**.
 
-Sign-in uses Google Identity Services in the browser. Access tokens last an hour and stay in that tab (`sessionStorage`); when one runs out the app shows **RECONNECT**, which is one click. Nothing goes to a 128bit server.
+Google sign-in happens in the browser and its tokens stay in that tab (an hour at a time; **RECONNECT** is one click). So Google syncs while Bitcalendar is open somewhere — not from a server.
 
 Run locally: `python3 -m http.server 8000` in the repo root, then open http://localhost:8000/app/.
 
-Code: `app/js/google.js` (sign-in + Calendar/Tasks REST), `local.js` (device calendar), `store.js` (merges accounts, caches by month, all edits), `views.js` (month/week/day/list), `modals.js` (dialogs), `app.js` (wiring, drag-and-drop, keys, reminders).
+Code: `app/js/cloud.js` (128bit account + tables), `gsync.js` (Google → Bitcalendar mapping + incremental sync), `google.js` (Google sign-in + API), `recur.js` (repeat rules, time-zone aware), `local.js` (signed-out device calendar), `store.js` (everything the views read and every edit), `views.js`, `modals.js`, `app.js`; `sw.js` (offline + push).
 
 ## Architecture (128bit family standard)
 
 - **One 128bit account** across all apps from day one.
 - **Shared event schema** — Bitcalendar emits `event.created`, `event.reminded` and reads the family feed (e.g. `workout.logged` → streak day marked).
 - **Family event feed** — `supabase/family-feed.sql` in this repo (same block as 128bitPlay's setup SQL — keep them in step). Run once in the Supabase SQL Editor.
+- **Bitcalendar's tables** — `supabase/bitcalendar.sql` (`bitcal_calendars`, `bitcal_events`, `bitcal_tasks`, `bitcal_push`, plus server-only `bitcal_sent` / `bitcal_vapid`).
 - **Monetization:** 128bit Pro bundle subscription across all apps (default assumption).
 
 ## For Carlos
@@ -73,7 +86,10 @@ Code: `app/js/google.js` (sign-in + Calendar/Tasks REST), `local.js` (device cal
 - [ ] Formspree ID in `index.html`
 - [ ] Product direction locked (Daniel)
 - [ ] Widget build (per platform call)
-- [x] Web app: Google Calendar + Tasks, month/week/day/list, full event editing (`app/`)
+- [x] Web app: month/week/day/list, full event editing (`app/`)
+- [x] Own storage in the 128bit account, synced across devices; Google import + ongoing sync
+- [x] Installable (PWA), offline, push reminders
+- [x] Emits `event.created` to the family feed
+- [ ] Run `supabase/bitcalendar.sql`, deploy `bitcal-reminders`, run `supabase/bitcalendar-reminders.sql`, add the auth redirect URL
 - [ ] Google OAuth client ID in `app/config.js` + test users added
-- [ ] Emit `event.created` to the family feed (needs the 128bit account sign-in)
 - [ ] Full app behind the widget (native)

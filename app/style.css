@@ -120,7 +120,17 @@ body.tasks-open #tasksBtn { background: var(--purple); color: var(--bg); }
 .cgroup { margin-bottom: 12px; }
 .cgroup h4 { font-size: 7px; color: var(--dim); font-weight: normal; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cgroup .btn { margin-bottom: 8px; }
-.cal { display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; font-size: 8px; line-height: 1.5; }
+.cal { display: flex; align-items: center; gap: 4px; }
+.cal label { display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; font-size: 8px; line-height: 1.5; flex: 1; min-width: 0; }
+.cal .edit { background: none; border: 0; color: var(--mute); cursor: pointer; font-size: 11px; padding: 2px 4px; opacity: 0; }
+.cal:hover .edit, .cal .edit:focus-visible { opacity: 1; }
+.cal .edit:hover { color: var(--purple); }
+@media (hover: none) { .cal .edit { opacity: 1; } }
+.gstat { display: block; font-size: 7px; color: var(--green); margin: -2px 0 8px; line-height: 1.6; }
+.addcal { display: flex; gap: 6px; margin: 4px 0 4px; flex-wrap: wrap; }
+.hint { font-size: 7px; color: var(--dim); line-height: 2; margin: 4px 0; }
+.accts .sub { font-size: 8px; color: var(--orange); margin: 8px 0 0; }
+.acct-btn .me { font-size: 12px; color: var(--purple); }
 .cal input { position: absolute; opacity: 0; pointer-events: none; }
 .cal i { width: 14px; height: 14px; flex: none; border: 3px solid var(--c, var(--purple)); background: transparent; }
 .cal i.tl { --c: var(--purple); border-style: dotted; }

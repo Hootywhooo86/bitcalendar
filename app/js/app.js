@@ -35,11 +35,10 @@ function render() {
 function renderTop() {
   $('#rangeTitle').textContent = state.query ? 'SEARCH' : V.titleFor(state.mode, state.cursor, narrow());
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === state.mode && !state.query));
-  const g = store.googleAccounts()[0];
-  $('#acctBtn').innerHTML = g?.picture
-    ? `<img src="${V.esc(g.picture)}" alt="" referrerpolicy="no-referrer">${store.googleAccounts().length > 1 ? `<b>${store.googleAccounts().length}</b>` : ''}`
-    : g ? `<span>${V.esc(g.email[0].toUpperCase())}</span>` : '<span>SIGN IN</span>';
-  $('#acctBtn').classList.toggle('warn', store.googleAccounts().some(a => a.expired));
+  const u = store.user;
+  $('#acctBtn').innerHTML = u ? `<span class="me">${V.esc(u.email[0].toUpperCase())}</span>` : '<span>SIGN IN</span>';
+  $('#acctBtn').title = u ? u.email : 'sign in';
+  $('#acctBtn').classList.toggle('warn', store.googleAccounts().some(a => a.expired) || store.offline);
 }
 
 function renderMain() {
@@ -96,27 +95,30 @@ function renderSidebar() {
       <b>${V.esc(e.title)}</b><small>${e.allDay ? D.fmtDay(e.start) : `${D.fmtDay(e.start)} · ${D.fmtTime(e.start, store.settings.h24)}`}</small></div>`).join('')
     : '<p class="none">nothing coming up...</p>';
 
-  // Calendars + task lists, grouped by account.
-  $('#calList').innerHTML = store.accounts.map(a => {
-    const cals = store.calendars.filter(c => c.account === a.key);
-    const lists = store.taskLists.filter(l => l.account === a.key);
-    return `<div class="cgroup">
-      <h4 title="${V.esc(a.email || a.name)}">${V.esc(a.kind === 'local' ? a.name : a.email)}</h4>
-      ${a.expired ? `<button class="btn tiny primary" data-reconnect="${V.esc(a.email)}">RECONNECT</button>` : ''}
-      ${cals.map(c => `<label class="cal"><input type="checkbox" data-vis="${V.esc(c.key)}"${store.isVisible(c.key) ? ' checked' : ''}><i style="--c:${V.esc(c.color)}"></i><span>${V.esc(c.name)}</span></label>`).join('')}
-      ${lists.map(l => `<label class="cal"><input type="checkbox" data-vis="${V.esc(l.key)}"${store.isVisible(l.key) ? ' checked' : ''}><i class="tl"></i><span>${V.esc(l.title)}</span></label>`).join('')}
-    </div>`;
-  }).join('');
+  // Calendars + task lists: yours, then each Google account feeding in.
+  const row = (c, isList) => `<div class="cal"><label><input type="checkbox" data-vis="${V.esc(c.key)}"${store.isVisible(c.key) ? ' checked' : ''}><i class="${isList ? 'tl' : ''}" style="--c:${V.esc(c.color || '#b388ff')}"></i><span>${V.esc(c.name ?? c.title)}</span></label>${store.cloud ? `<button class="edit" data-editcal="${V.esc(c.key)}" aria-label="edit ${V.esc(c.name ?? c.title)}">&#9998;</button>` : ''}</div>`;
+  const evGroups = store.groups('events'), taskGroups = store.groups('tasks');
+  const labels = [...new Set([...evGroups, ...taskGroups].map(g => g.label))];
+  $('#calList').innerHTML = labels.map(label => {
+    const eg = evGroups.find(g => g.label === label), tg = taskGroups.find(g => g.label === label);
+    const email = (eg || tg).email;
+    const g = email && store.googleAccount(email);
+    const status = email ? (g ? (g.expired ? `<button class="btn tiny primary" data-reconnect="${V.esc(email)}">RECONNECT</button>` : `<small class="gstat">${V.esc(g.status || 'CONNECTED')}</small>`) : '<small class="gstat">NOT SYNCING</small>') : '';
+    return `<div class="cgroup"><h4 title="${V.esc(label)}">${V.esc(label)}</h4>${status}
+      ${(eg?.items || []).map(c => row(c)).join('')}${(tg?.items || []).map(l => row(l, true)).join('')}</div>`;
+  }).join('') + (store.cloud
+    ? '<div class="addcal"><button class="btn tiny" data-newcal="events">+ CALENDAR</button><button class="btn tiny" data-newcal="tasks">+ TASK LIST</button></div>'
+    : '<p class="hint">SIGN IN TO SYNC ACROSS DEVICES, ADD CALENDARS AND BRING IN GOOGLE.</p>');
+  $('#connectBtn').textContent = store.cloud ? '+ CONNECT GOOGLE' : 'SIGN IN';
 }
 
 function renderTasks() {
   const panel = $('#taskBody');
   if (!document.body.classList.contains('tasks-open')) return;
-  const lists = store.taskLists.filter(l => !store.account(l.account)?.expired);
   const listSel = $('#taskList');
   const keep = listSel.value || store.settings.lastList;
-  listSel.innerHTML = lists.map(l => `<option value="${V.esc(l.key)}">${V.esc(l.title)}${store.googleAccounts().length > 1 && l.account !== 'local' ? ' · ' + V.esc(store.account(l.account).email.split('@')[0]) : ''}</option>`).join('');
-  if (lists.some(l => l.key === keep)) listSel.value = keep;
+  listSel.innerHTML = store.groups('tasks').map(g => `<optgroup label="${V.esc(g.label)}">${g.items.map(l => `<option value="${V.esc(l.key)}">${V.esc(l.title)}</option>`).join('')}</optgroup>`).join('');
+  if (store.taskLists.some(l => l.key === keep)) listSel.value = keep;
   const now = today(), tasks = store.visibleTasks();
   const groups = [
     ['OVERDUE', t => !t.completed && t.due && t.due < now, 'warn'],
@@ -139,7 +141,8 @@ function renderTasks() {
 
 function renderBanner() {
   const expired = store.googleAccounts().filter(a => a.expired);
-  $('#banner').innerHTML = expired.map(a => `<div class="bar">&#9888; ${V.esc(a.email)} IS SIGNED OUT — <button class="btn tiny primary" data-reconnect="${V.esc(a.email)}">RECONNECT</button></div>`).join('');
+  $('#banner').innerHTML = (store.offline ? '<div class="bar">&#9888; OFFLINE · SHOWING WHAT THIS DEVICE SAVED. CHANGES NEED A CONNECTION.</div>' : '')
+    + expired.map(a => `<div class="bar">&#9888; GOOGLE (${V.esc(a.email)}) STOPPED SYNCING — <button class="btn tiny primary" data-reconnect="${V.esc(a.email)}">RECONNECT</button></div>`).join('');
 }
 
 // ---- loading ----
@@ -231,7 +234,9 @@ document.addEventListener('click', async e => {
   if (btn('#newBtn')) return newEvent(state.mode === 'month' || D.sameDay(state.cursor, today()) ? {} : { start: D.withTime(state.cursor, 9 * 60), end: D.withTime(state.cursor, 9 * 60 + store.settings.duration) });
   if (btn('#acctBtn')) return M.openAccounts(M.openSettings);
   if (btn('#settingsBtn')) return M.openSettings();
-  if (btn('#connectBtn')) return M.connect();
+  if (btn('#connectBtn')) return store.cloud ? M.connect() : M.openSignIn();
+  if (btn('[data-newcal]')) return M.openCalendarEditor(null, btn('[data-newcal]').dataset.newcal);
+  if (btn('[data-editcal]')) { const k = btn('[data-editcal]').dataset.editcal; return M.openCalendarEditor(store.calendar(k) || store.taskList(k)); }
   if (btn('#refreshBtn')) { await M.run(() => store.refreshAll(), 'SYNCED'); return; }
   if (btn('#menuBtn')) return document.body.classList.toggle('side-open');
   if (btn('#tasksBtn') || btn('#tasksClose')) { document.body.classList.toggle('tasks-open'); return renderTasks(); }
@@ -363,7 +368,7 @@ document.addEventListener('keydown', e => {
 
 const notified = new Set(JSON.parse(sessionStorage.getItem('bitcal.notified') || '[]'));
 function checkReminders() {
-  if (!store.settings.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
+  if (store.settings.push || !store.settings.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
   const now = new Date();
   for (const ev of store.eventsBetween(now, D.addDays(now, 2))) {
     if (ev.allDay || ev.start < D.addMinutes(now, -5)) continue;
@@ -378,6 +383,19 @@ function checkReminders() {
   }
 }
 
+// ---- opening an event from a reminder ----
+
+// Reminders link to ?day=YYYY-MM-DD&event=<id>; the service worker also posts them to an open tab.
+async function openFromLink(day, rowId) {
+  if (!day) return;
+  goTo(D.parseYmd(day), 'day');
+  await load();
+  const ev = store.eventsBetween(D.parseYmd(day), D.addDays(D.parseYmd(day), 1)).find(e => e.rowId === rowId || e.id === rowId);
+  if (ev) M.openEvent(ev, e => M.openEditor(e));
+}
+navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'open') openFromLink(e.data.day, e.data.event); });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
 // ---- start ----
 
 store.on(msg => msg ? M.toast(msg) : refresh());
@@ -387,6 +405,14 @@ setInterval(() => { if (!state.drag && !M.modalOpen()) { renderSidebar(); if (st
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && Date.now() - (store.lastRefresh || 0) > 5 * 60000) store.refreshAll();
 });
+// Keep pulling new Google invites in while the app is open.
+setInterval(() => { if (document.visibilityState === 'visible') store.syncAllGoogle(); }, 10 * 60000);
 
 render();
-store.init().then(() => { store.lastRefresh = Date.now(); load(); checkReminders(); });
+store.init().then(async () => {
+  store.lastRefresh = Date.now();
+  await load();
+  checkReminders();
+  const p = new URLSearchParams(location.search);
+  if (p.get('day')) { history.replaceState(null, '', location.pathname); openFromLink(p.get('day'), p.get('event')); }
+});

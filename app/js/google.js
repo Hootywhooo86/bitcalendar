@@ -1,7 +1,5 @@
 // Google sign-in (Google Identity Services token model) and the Calendar + Tasks REST APIs.
 // Runs entirely in the browser: no server, tokens never leave this tab.
-import { addDays, parseYmd, ymd } from './dates.js';
-
 const SCOPES = [
   'openid', 'email', 'profile',
   'https://www.googleapis.com/auth/calendar',
@@ -92,89 +90,32 @@ async function pages(acc, url, key = 'items') {
 const qs = o => new URLSearchParams(Object.entries(o).filter(([, v]) => v != null)).toString();
 const calUrl = id => `${CAL}/calendars/${encodeURIComponent(id)}/events`;
 
-// ---- Calendar ----
+// ---- Calendar (read for the mirror; write only to answer invites) ----
 
 export const listCalendars = acc => pages(acc, `${CAL}/users/me/calendarList?${qs({ maxResults: 250 })}`);
 
-export function fromGoogle(ev, cal) {
-  const allDay = !!ev.start?.date;
-  const reminders = ev.reminders || {};
-  const self = (ev.attendees || []).find(a => a.self);
-  return {
-    uid: `${cal.key}|${ev.id}`, id: ev.id, calKey: cal.key,
-    title: ev.summary || '(no title)',
-    start: allDay ? parseYmd(ev.start.date) : new Date(ev.start.dateTime),
-    end: allDay ? parseYmd(ev.end.date) : new Date(ev.end.dateTime),
-    allDay, location: ev.location || '', description: ev.description || '',
-    colorId: ev.colorId || null, seriesId: ev.recurringEventId || null,
-    reminder: reminders.useDefault ? 'default' : (reminders.overrides || []).find(o => o.method === 'popup')?.minutes ?? null,
-    htmlLink: ev.htmlLink, meet: ev.hangoutLink || '', attendees: ev.attendees || [],
-    organizer: ev.organizer, selfStatus: self?.responseStatus || null,
-    editable: cal.writable, raw: ev,
-  };
+// Everything in a calendar (series as one item, plus their changed/cancelled days), or with a
+// syncToken just what changed since. Resolves {items, nextSyncToken}; a 410 means start over.
+export async function syncEvents(acc, calId, syncToken) {
+  const items = [];
+  let pageToken = '', next = null;
+  do {
+    const page = await api(acc, 'GET', `${calUrl(calId)}?${qs({
+      maxResults: 2500, showDeleted: true, singleEvents: false, syncToken: syncToken || null, pageToken: pageToken || null,
+    })}`);
+    items.push(...(page.items || []));
+    pageToken = page.nextPageToken;
+    next = page.nextSyncToken || next;
+  } while (pageToken);
+  return { items, nextSyncToken: next };
 }
 
-export async function listEvents(acc, cal, min, max) {
-  const items = await pages(acc, `${calUrl(cal.id)}?${qs({
-    timeMin: min.toISOString(), timeMax: max.toISOString(), singleEvents: true, orderBy: 'startTime', maxResults: 2500,
-  })}`);
-  return items.filter(e => e.status !== 'cancelled' && e.start).map(e => fromGoogle(e, cal));
-}
-
-export async function searchEvents(acc, cal, q) {
-  const now = new Date();
-  const items = await pages(acc, `${calUrl(cal.id)}?${qs({
-    q, timeMin: addDays(now, -365).toISOString(), timeMax: addDays(now, 365).toISOString(),
-    singleEvents: true, orderBy: 'startTime', maxResults: 250,
-  })}`);
-  return items.filter(e => e.status !== 'cancelled' && e.start).map(e => fromGoogle(e, cal));
-}
-
-export const getEvent = (acc, calId, id) => api(acc, 'GET', `${calUrl(calId)}/${encodeURIComponent(id)}`);
-
-// Draft (from the editor) → Google event fields. withRecurrence only for new events and whole-series edits.
-export function toGoogle(d, withRecurrence) {
-  const when = t => d.allDay ? { date: ymd(t), dateTime: null, timeZone: null } : { dateTime: t.toISOString(), timeZone: TZ, date: null };
-  const body = {
-    summary: d.title, location: d.location || '', description: d.description || '',
-    colorId: d.colorId || null, start: when(d.start), end: when(d.end),
-  };
-  if (d.reminder !== undefined) body.reminders = d.reminder === 'default'
-    ? { useDefault: true }
-    : { useDefault: false, overrides: d.reminder == null ? [] : [{ method: 'popup', minutes: +d.reminder }] };
-  // rrule undefined means "leave the repeat alone" (drag-and-drop moves).
-  if (withRecurrence && (d.recurrence || d.rrule !== undefined)) body.recurrence = d.recurrence || (d.rrule ? [`RRULE:${d.rrule}`] : []);
-  return body;
-}
-
-const strip = o => JSON.parse(JSON.stringify(o, (k, v) => v === null ? undefined : v));
-
-export const insertEvent = (acc, calId, body) => api(acc, 'POST', calUrl(calId), strip(body));
 export const patchEvent = (acc, calId, id, body) => api(acc, 'PATCH', `${calUrl(calId)}/${encodeURIComponent(id)}`, body);
-export const deleteEvent = (acc, calId, id) => api(acc, 'DELETE', `${calUrl(calId)}/${encodeURIComponent(id)}`);
-export const moveEvent = (acc, calId, id, dest) =>
-  api(acc, 'POST', `${calUrl(calId)}/${encodeURIComponent(id)}/move?${qs({ destination: dest })}`);
 
-// ---- Tasks ----
+// ---- Tasks (read for the mirror) ----
 
 export const listTaskLists = acc => pages(acc, `${TASKS}/users/@me/lists?${qs({ maxResults: 100 })}`);
 
-export async function listTasks(acc, listId) {
-  const items = await pages(acc, `${TASKS}/lists/${encodeURIComponent(listId)}/tasks?${qs({
-    maxResults: 100, showCompleted: true, showHidden: true,
-  })}`);
-  return items.filter(t => !t.deleted && (t.title || t.notes)).map(t => ({
-    id: t.id, listId, title: t.title || '(no title)', notes: t.notes || '',
-    due: t.due ? parseYmd(t.due) : null, completed: t.status === 'completed', link: t.webViewLink,
-  }));
-}
-
-// Tasks only keep the date of "due"; Google stores it as midnight UTC.
-const taskBody = d => ({
-  title: d.title, notes: d.notes || '', due: d.due ? `${ymd(d.due)}T00:00:00.000Z` : null,
-  status: d.completed ? 'completed' : 'needsAction', ...(d.completed ? {} : { completed: null }),
-});
-const taskUrl = listId => `${TASKS}/lists/${encodeURIComponent(listId)}/tasks`;
-export const insertTask = (acc, listId, d) => api(acc, 'POST', taskUrl(listId), strip(taskBody(d)));
-export const patchTask = (acc, listId, id, d) => api(acc, 'PATCH', `${taskUrl(listId)}/${encodeURIComponent(id)}`, taskBody(d));
-export const deleteTask = (acc, listId, id) => api(acc, 'DELETE', `${taskUrl(listId)}/${encodeURIComponent(id)}`);
+export const listTasksSince = (acc, listId, updatedMin) => pages(acc, `${TASKS}/lists/${encodeURIComponent(listId)}/tasks?${qs({
+  maxResults: 100, showCompleted: true, showHidden: true, showDeleted: true, updatedMin: updatedMin || null,
+})}`);

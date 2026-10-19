@@ -19,14 +19,14 @@ function seed() {
   const sat = addDays(today, (6 - today.getDay() + 7) % 7);
   const ev = (title, day, from, to, extra = {}) => ({
     id: newId(), title, start: withTime(day, from).toISOString(), end: withTime(day, to).toISOString(),
-    allDay: false, location: '', description: '', colorId: null, rrule: null, exdates: [], reminder: 10, ...extra,
+    allDay: false, location: '', description: '', colorId: null, rrule: null, exdates: [], reminder: 10, seed: true, ...extra,
   });
   return {
     events: [
       ev('Morning quest: log workout', today, 7 * 60, 8 * 60, { rrule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' }),
       ev("Birthday dinner @ Nana's", sat, 17 * 60, 19 * 60, { location: "Nana's" }),
     ],
-    tasks: [{ id: newId(), title: 'Call mom back', notes: '', due: ymd(today), completed: false }],
+    tasks: [{ id: newId(), title: 'Call mom back', notes: '', due: ymd(today), completed: false, seed: true }],
   };
 }
 
@@ -72,7 +72,7 @@ export function listEvents(cal, min, max) {
       out.push({
         uid: `${cal.key}|${id}`, id, calKey: cal.key, title: e.title || '(no title)', start: s, end: en,
         allDay: e.allDay, location: e.location, description: e.description, colorId: e.colorId,
-        seriesId: e.rrule ? e.id : null, reminder: e.reminder, editable: true,
+        seriesId: e.rrule ? e.id : null, rrule: e.rrule, reminder: e.reminder, editable: true,
       });
     }
   }
@@ -107,7 +107,7 @@ export function insertEvent(draft) {
 export function updateSeries(id, draft) {
   const e = getSeries(id);
   if (!e) throw new Error('Event not found');
-  Object.assign(e, fromDraft(draft));
+  Object.assign(e, fromDraft(draft), { seed: false }); // edited samples count as the person's own
   if (draft.rrule !== undefined) e.rrule = draft.rrule || null;
   save();
 }
@@ -126,8 +126,11 @@ const taskFields = d => ({ title: d.title, notes: d.notes || '', due: d.due ? ym
 export function insertTask(draft) { db.tasks.push({ id: newId(), ...taskFields(draft) }); save(); }
 export function updateTask(id, draft) {
   const t = db.tasks.find(x => x.id === id);
-  if (t) { Object.assign(t, taskFields(draft)); save(); }
+  if (t) { Object.assign(t, taskFields(draft), { seed: false }); save(); }
 }
 export function deleteTask(id) { db.tasks = db.tasks.filter(t => t.id !== id); save(); }
+
+// What the person added themselves (not the first-launch samples), for moving into their account.
+export const ownData = () => ({ events: db.events.filter(e => !e.seed), tasks: db.tasks.filter(t => !t.seed) });
 
 export function wipe() { localStorage.removeItem(KEY); db = { events: [], tasks: [] }; save(); }
