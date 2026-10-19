@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0d0d1a">
+<title>Bitcalendar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="scanlines">
+  <header class="topbar">
+    <button id="menuBtn" class="btn icon mobile" aria-label="calendars">&#9776;</button>
+    <a class="logo" href="../" title="back to bitcalendar">BITCAL<span>ENDAR</span></a>
+    <div class="nav">
+      <button id="prevBtn" class="btn icon" aria-label="previous">&#9664;</button>
+      <button id="todayBtn" class="btn">TODAY</button>
+      <button id="nextBtn" class="btn icon" aria-label="next">&#9654;</button>
+    </div>
+    <h2 id="rangeTitle">—</h2>
+    <div class="views" role="tablist">
+      <button class="btn" data-mode="month" title="month (M)">MONTH</button>
+      <button class="btn" data-mode="week" title="week (W)">WEEK</button>
+      <button class="btn" data-mode="day" title="day (D)">DAY</button>
+      <button class="btn" data-mode="agenda" title="agenda (A)">LIST</button>
+    </div>
+    <input id="search" type="search" placeholder="SEARCH" aria-label="search events" autocomplete="off">
+    <button id="tasksBtn" class="btn" title="tasks">&#9635; TASKS</button>
+    <button id="newBtn" class="btn primary" title="new event (N)">+ NEW</button>
+    <button id="acctBtn" class="acct-btn" aria-label="accounts"><span>SIGN IN</span></button>
+  </header>
+  <div id="banner"></div>
+
+  <div class="layout">
+    <aside id="sidebar">
+      <div class="widget">
+        <div class="widget-head">
+          <h2 id="miniTitle">—</h2>
+          <div class="wnav">
+            <button id="miniPrev" class="btn icon" aria-label="previous month">&#9664;</button>
+            <button id="miniNext" class="btn icon" aria-label="next month">&#9654;</button>
+          </div>
+        </div>
+        <div class="dow" id="miniDow"></div>
+        <div class="days" id="miniDays"></div>
+        <div class="events">
+          <h3 id="dayTitle">TODAY</h3>
+          <div id="dayList"><p class="none">no quests scheduled...</p></div>
+        </div>
+      </div>
+
+      <section class="panel">
+        <h3>&#9654; UP NEXT</h3>
+        <div id="upNext"></div>
+      </section>
+
+      <section class="panel">
+        <h3>&#9654; CALENDARS</h3>
+        <div id="calList"></div>
+        <div class="pbtns">
+          <button id="connectBtn" class="btn primary wide">+ CONNECT GOOGLE</button>
+          <button id="refreshBtn" class="btn" title="sync now">&#8635; SYNC</button>
+          <button id="settingsBtn" class="btn" title="settings">&#9881;</button>
+        </div>
+      </section>
+      <p class="keys">KEYS: M W D A · T TODAY · N NEW · &#9664; &#9654; · / SEARCH</p>
+    </aside>
+
+    <main id="main"></main>
+
+    <aside id="tasks">
+      <div class="thead"><h3>&#9635; TASKS</h3><button id="tasksClose" class="btn icon" aria-label="close tasks">&#10005;</button></div>
+      <form id="taskAdd" class="tadd">
+        <input id="taskTitle" placeholder="+ ADD A TASK" autocomplete="off" aria-label="new task">
+        <div class="trow2">
+          <select id="taskList" aria-label="task list"></select>
+          <label class="check"><input type="checkbox" id="taskToday"><span></span>TODAY</label>
+        </div>
+      </form>
+      <div id="taskBody"></div>
+    </aside>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
