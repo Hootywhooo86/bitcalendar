@@ -430,6 +430,7 @@ navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type ===
 if ('serviceWorker' in navigator && !N.isNative) navigator.serviceWorker.register('sw.js').catch(() => {});
 N.onOpen((day, ev) => openFromLink(day || D.ymd(new Date()), ev));
 N.onAuthLink(url => M.run(() => store.handleAuthLink(url), 'SIGNED IN'));
+N.onCommand(cmd => cmd === 'sync' ? M.run(() => store.refreshAll(), 'SYNCED') : cmd === 'new' ? newEvent() : null);
 N.onResume(() => { if (Date.now() - (store.lastRefresh || 0) > 5 * 60000) store.refreshAll(); else load(); });
 document.body.dataset.platform = N.platform;
 
@@ -443,7 +444,8 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && Date.now() - (store.lastRefresh || 0) > 5 * 60000) store.refreshAll();
 });
 // Keep pulling new Google invites in while the app is open.
-setInterval(() => { if (document.visibilityState === 'visible') store.syncAllGoogle(); }, 10 * 60000);
+// The desktop app also syncs from the tray, window hidden.
+setInterval(() => { if (document.visibilityState === 'visible' || N.platform === 'desktop') store.syncAllGoogle(); }, 10 * 60000);
 
 render();
 store.init().then(async () => {

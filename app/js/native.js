@@ -75,6 +75,9 @@ export async function onResume(fn) {
   (await cap()).App.addListener('resume', fn);
 }
 
+// fn('new' | 'sync') from the desktop tray menu.
+export function onCommand(fn) { if (platform === 'desktop') desk.onCommand(fn); }
+
 // Hands the home-screen widgets what to draw (Android).
 export async function updateWidget(snapshot) {
   if (platform !== 'android') return;

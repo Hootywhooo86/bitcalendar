@@ -24,7 +24,7 @@ Bitcalendar is Daniel's 128bit-family take on the calendar: month view, events, 
 - Syncs with the 128bit event feed — events from other 128bit apps (workouts, bookings, quests) can land on the calendar.
 
 **Open product questions for Daniel:**
-1. iOS / Android / both? (Widget APIs differ — iOS WidgetKit vs Android widgets.)
+1. iOS too? (Android + Windows are built; iOS would need WidgetKit.)
 2. Standalone calendar or a view over the existing family calendar (Google Calendar sync)?
 3. Should 128bitlife quests auto-schedule onto the calendar?
 
@@ -65,6 +65,36 @@ Run locally: `python3 -m http.server 8000` in the repo root, then open http://lo
 
 Code: `app/js/cloud.js` (128bit account + tables), `gsync.js` (Google → Bitcalendar mapping + incremental sync), `google.js` (Google sign-in + API), `recur.js` (repeat rules, time-zone aware), `local.js` (signed-out device calendar), `store.js` (everything the views read and every edit), `views.js`, `modals.js`, `app.js`; `sw.js` (offline + push).
 
+## Android app (`android/`)
+
+Capacitor 8 wrapping `app/` (`app.bit128.bitcalendar`, Android 7+). Everything the web app does, plus:
+
+- **Home-screen widgets** (the README's "widget is the product"): **Month** (4×4: today lit, dots on busy days, tap a day to open it, ◀ ▶ to flip months) and **Up next** (4×2: next events with countdowns). Long-press the home screen → Widgets → Bitcalendar. Drawn natively in the landing mock's pixel style (`android/app/src/main/java/app/bit128/bitcalendar/widget/`); the app feeds them through the `BitcalWidget` plugin.
+- **Reminders on the phone:** the next two weeks are scheduled as Android notifications, so they arrive offline and with the app closed. Tapping one opens the event.
+- Emailed sign-in links open the app (`app.bit128.bitcalendar://auth`). Add that to Supabase → Authentication → Redirect URLs.
+- Google is connected from the Windows app or the web (Google doesn't allow sign-in inside apps); once it's in your account, it shows on the phone too.
+
+Build: `npm ci && npm run android:apk` (needs JDK 21 + Android SDK 36) → `android/app/build/outputs/apk/debug/app-debug.apk`. The debug APK installs directly (allow "install unknown apps"). For a Play-ready signed build, make a keystore (`keytool -genkey -v -keystore bitcal.jks -alias bitcal -keyalg RSA -keysize 2048 -validity 10000`) and either put `storeFile/storePassword/keyAlias/keyPassword` in `android/keystore.properties`, or add the `BITCAL_*` secrets for CI, then `npm run android:release`.
+
+## Windows app (`desktop/`)
+
+Electron, same app, plus:
+
+- **Lives in the tray:** closing the window keeps it running; tray menu has New event, Sync now, **Start with Windows** (starts hidden), Quit.
+- **Windows notifications** for reminders, even with the window closed. Click one to open the event.
+- **Google keeps syncing in the background, all day:** you sign in once in your normal browser, and the app keeps a refresh token (encrypted by Windows for your user). No hourly RECONNECT.
+- Opens emailed sign-in links (`app.bit128.bitcalendar://` is registered on install).
+
+Google setup for the desktop app: Google Cloud → Credentials → **Create OAuth client ID → Desktop app** (same project as the web client, same Calendar + Tasks APIs and test users). Put its client ID and secret in `desktop/config.json` (or the `GOOGLE_DESKTOP_CLIENT_*` secrets for CI). Desktop-app secrets aren't secret by Google's design; they ship inside the app.
+
+Build: `cd desktop && npm ci && npm run dist` (on Windows; on Linux it needs Wine) → `desktop/dist/Bitcalendar-Setup-<version>.exe` (installer) and `Bitcalendar-<version>-portable.exe` (no install). Run from source: `npm start`. Unsigned, so Windows SmartScreen asks once: **More info → Run anyway**.
+
+## Builds (GitHub Actions)
+
+`.github/workflows/build-apps.yml` builds the APK (Linux runner) and the installer + portable exe (Windows runner) on every push; download them from the run's **Artifacts**. Push a tag like `v1.1.0` to publish them as a GitHub Release. Optional secrets: `BITCAL_KEYSTORE_BASE64`, `BITCAL_STORE_PASSWORD`, `BITCAL_KEY_ALIAS`, `BITCAL_KEY_PASSWORD` (signed release APK), `GOOGLE_DESKTOP_CLIENT_ID`, `GOOGLE_DESKTOP_CLIENT_SECRET`.
+
+After changing library versions, run `npm run vendor` (rebundles `app/vendor/`). After changing the pixel art, `python3 scripts/icons.py` redraws every icon.
+
 ## Architecture (128bit family standard)
 
 - **One 128bit account** across all apps from day one.
@@ -92,4 +122,7 @@ Code: `app/js/cloud.js` (128bit account + tables), `gsync.js` (Google → Bitcal
 - [x] Emits `event.created` to the family feed
 - [ ] Run `supabase/bitcalendar.sql`, deploy `bitcal-reminders`, run `supabase/bitcalendar-reminders.sql`, add the auth redirect URL
 - [ ] Google OAuth client ID in `app/config.js` + test users added
-- [ ] Full app behind the widget (native)
+- [x] Android APK with Month + Up next widgets and on-phone reminders (`android/`)
+- [x] Windows app: tray, start with Windows, notifications, background Google sync (`desktop/`)
+- [ ] Desktop Google client in `desktop/config.json`; `app.bit128.bitcalendar://auth` in Supabase redirect URLs
+- [ ] Release keystore for a signed APK

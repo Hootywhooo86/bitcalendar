@@ -1,0 +1,90 @@
+{
+  "name": "bitcalendar-desktop",
+  "version": "1.1.0",
+  "description": "Bitcalendar for Windows: the 128bit pixel calendar, in your tray.",
+  "author": "Hootywhooo86",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "43.7.7",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "app.bit128.bitcalendar",
+    "productName": "Bitcalendar",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "google.js",
+      "reminders.js",
+      "config.json",
+      "build/icon.png",
+      "build/tray.png",
+      "build/tray@2x.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../app",
+        "to": "app-web",
+        "filter": [
+          "**/*",
+          "!sw.js",
+          "!manifest.webmanifest"
+        ]
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Bitcalendar",
+        "schemes": [
+          "app.bit128.bitcalendar"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "legalTrademarks": "128bit"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Bitcalendar",
+      "artifactName": "Bitcalendar-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "Bitcalendar-${version}-portable.exe"
+    },
+    "publish": null
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hootywhooo86/bitcalendar.git"
+  }
+}

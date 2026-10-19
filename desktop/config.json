@@ -1,0 +1,5 @@
+{
+  "_readme": "Google sign-in for the desktop app. Make an OAuth client of type 'Desktop app' in Google Cloud (README -> Windows app). Desktop client secrets are not secret by Google's design; they ship inside the app.",
+  "googleClientId": "",
+  "googleClientSecret": ""
+}

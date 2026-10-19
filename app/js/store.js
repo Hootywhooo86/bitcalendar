@@ -224,7 +224,7 @@ export const store = {
   async connectGoogle(hint) {
     if (!this.cloud) throw new Error('Sign in to your 128bit account first, so there is somewhere to put it');
     const clientId = this.clientId();
-    if (!clientId) throw new Error('Add a Google client ID first');
+    if (!clientId && !N.googleRefreshes) throw new Error('Add a Google client ID first');
     const g = N.googleRefreshes ? await G.withToken(await N.googleSignIn(hint)) : await G.signIn(clientId, hint);
     let acc = this.googleAccount(g.email);
     if (acc) Object.assign(acc, g, { expired: false });
