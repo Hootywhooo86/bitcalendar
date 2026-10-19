@@ -1,6 +1,7 @@
 // Dialogs: event details + editor, task editor, accounts, settings, Google setup.
 import * as D from './dates.js';
 import * as G from './google.js';
+import * as N from './native.js';
 import { store } from './store.js';
 import { esc } from './views.js';
 
@@ -272,15 +273,16 @@ export function openTaskEditor(task, preset = {}) {
 // ---- accounts / settings / setup ----
 
 export function connect(hint) {
+  if (!N.googleHere) return toast('Connect Google from the computer app or the web. Once it\'s in, it shows up here too.');
   if (!store.cloud) {
     toast('Sign in to your 128bit account first, then Google can pour in');
     return openSignIn();
   }
-  if (!store.clientId()) return openSetup();
-  if (!G.gisReady()) { G.loadGis().catch(() => {}); return toast('Google sign-in is still loading, tap again in a sec'); }
+  if (!store.clientId() && !N.googleRefreshes) return openSetup();
+  if (!N.googleRefreshes && !G.gisReady()) { G.loadGis().catch(() => {}); return toast('Google sign-in is still loading, tap again in a sec'); }
   return run(async () => {
     const acc = await store.connectGoogle(hint);
-    toast(`${acc.email} IS IN · KEEPS SYNCING WHILE BITCALENDAR IS OPEN`);
+    toast(N.googleRefreshes ? `${acc.email} IS IN · KEEPS SYNCING IN THE BACKGROUND` : `${acc.email} IS IN · KEEPS SYNCING WHILE BITCALENDAR IS OPEN`);
   });
 }
 
@@ -421,10 +423,12 @@ export function openSettings() {
     </div>
     <label class="field"><span>NEW EVENT LENGTH</span><select name="duration">${[15, 30, 45, 60, 90, 120].map(n => `<option value="${n}">${n} MIN</option>`).join('')}</select></label>
     <label class="check"><input type="checkbox" name="showTasks"${s.showTasks ? ' checked' : ''}><span></span>SHOW TASKS ON THE CALENDAR</label>
+    ${N.isNative ? `<label class="check"><input type="checkbox" name="deviceReminders"${s.deviceReminders !== false ? ' checked' : ''}><span></span>REMINDERS ON THIS ${N.platform === 'android' ? 'PHONE' : 'COMPUTER'}</label>
+    ${N.platform === 'desktop' ? '<label class="check"><input type="checkbox" name="autoStart"><span></span>START WITH WINDOWS (IN THE TRAY)</label>' : ''}` : `
     <label class="check"><input type="checkbox" name="push"${s.push ? ' checked' : ''}${pushOk && store.cloud ? '' : ' disabled'}><span></span>PUSH REMINDERS ON THIS DEVICE (EVEN WHEN CLOSED)</label>
     ${!store.cloud ? '<p class="mtext">Sign in to get push reminders.</p>' : !pushOk ? '<p class="mtext">This browser can\'t do push. On iPhone: Share → Add to Home Screen, then open Bitcalendar from there.</p>' : ''}
     <label class="check"><input type="checkbox" name="notify"${s.notify ? ' checked' : ''}><span></span>POP-UP REMINDERS WHILE THE APP IS OPEN</label>
-    <label class="field"><span>GOOGLE CLIENT ID (FOR IMPORT)</span><input name="clientId" placeholder="${esc(window.BITCAL_CONFIG?.googleClientId || 'xxxx.apps.googleusercontent.com')}" value="${esc(s.clientId)}"></label>
+    <label class="field"><span>GOOGLE CLIENT ID (FOR IMPORT)</span><input name="clientId" placeholder="${esc(window.BITCAL_CONFIG?.googleClientId || 'xxxx.apps.googleusercontent.com')}" value="${esc(s.clientId)}"></label>`}
     <div class="mbtns">
       ${store.cloud ? '' : '<button type="button" class="btn danger" data-act="wipe">CLEAR DEVICE CALENDAR</button>'}
       <button type="submit" class="btn primary">SAVE</button>
@@ -433,12 +437,14 @@ export function openSettings() {
   f.elements.weekStart.value = s.weekStart;
   f.elements.h24.value = s.h24 ? 1 : 0;
   f.elements.duration.value = s.duration;
-  f.elements.notify.addEventListener('change', async () => {
+  if (f.elements.autoStart) window.bitcalDesktop.getAutoStart().then(on => { f.elements.autoStart.checked = on; });
+  f.elements.autoStart?.addEventListener('change', () => window.bitcalDesktop.setAutoStart(f.elements.autoStart.checked));
+  f.elements.notify?.addEventListener('change', async () => {
     if (f.elements.notify.checked && 'Notification' in window && Notification.permission !== 'granted') {
       if (await Notification.requestPermission() !== 'granted') { f.elements.notify.checked = false; toast('Notifications are blocked in this browser'); }
     }
   });
-  f.elements.push.addEventListener('change', async () => {
+  f.elements.push?.addEventListener('change', async () => {
     const box = f.elements.push;
     box.disabled = true;
     const ok = await run(() => box.checked ? store.enablePush() : store.disablePush(), box.checked ? 'PUSH REMINDERS ON' : 'PUSH REMINDERS OFF');
@@ -454,7 +460,10 @@ export function openSettings() {
     e.preventDefault();
     store.setSettings({
       weekStart: +f.elements.weekStart.value, h24: f.elements.h24.value === '1', duration: +f.elements.duration.value,
-      showTasks: f.elements.showTasks.checked, notify: f.elements.notify.checked, clientId: f.elements.clientId.value.trim(),
+      showTasks: f.elements.showTasks.checked,
+      ...(N.isNative
+        ? { deviceReminders: f.elements.deviceReminders.checked }
+        : { notify: f.elements.notify.checked, clientId: f.elements.clientId.value.trim() }),
     });
     closeModal(m);
     toast('SAVED');

@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Bitcalendar</string>
+    <string name="title_activity_main">Bitcalendar</string>
+    <string name="package_name">app.bit128.bitcalendar</string>
+    <string name="custom_url_scheme">app.bit128.bitcalendar</string>
+    <string name="widget_month_label">Bitcalendar month</string>
+    <string name="widget_month_desc">Your month, chunky: today lit up, dots on busy days. Tap a day to open it.</string>
+    <string name="widget_upnext_label">Bitcalendar up next</string>
+    <string name="widget_upnext_desc">The next things on your calendar, with countdowns.</string>
+</resources>

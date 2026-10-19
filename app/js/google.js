@@ -48,8 +48,10 @@ export function requestToken(clientId, hint) {
   });
 }
 
-export async function signIn(clientId, hint) {
-  const r = await requestToken(clientId, hint);
+export const signIn = async (clientId, hint) => withToken(await requestToken(clientId, hint));
+
+// A token answer ({access_token, expires_in, scope}) → the account it belongs to.
+export async function withToken(r) {
   const acc = { token: r.access_token, expiresAt: Date.now() + r.expires_in * 1000, scope: r.scope };
   const me = await api(acc, 'GET', 'https://www.googleapis.com/oauth2/v3/userinfo');
   return { ...acc, email: me.email, name: me.name || me.email, picture: me.picture || '' };

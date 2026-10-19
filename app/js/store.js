@@ -5,6 +5,7 @@ import * as C from './cloud.js';
 import * as D from './dates.js';
 import * as G from './google.js';
 import * as L from './local.js';
+import * as N from './native.js';
 import { syncAccount } from './gsync.js';
 import { expand, lastStart, wall } from './recur.js';
 
@@ -150,6 +151,7 @@ export const store = {
   },
 
   async signIn(email, password) { await C.signIn(email, password); },
+  async handleAuthLink(url) { await C.handleAuthLink(url); },
   async signUp(email, password) { return C.signUp(email, password); },
   async sendLink(email) { await C.sendLink(email); },
   async signOut() {
@@ -223,7 +225,7 @@ export const store = {
     if (!this.cloud) throw new Error('Sign in to your 128bit account first, so there is somewhere to put it');
     const clientId = this.clientId();
     if (!clientId) throw new Error('Add a Google client ID first');
-    const g = await G.signIn(clientId, hint);
+    const g = N.googleRefreshes ? await G.withToken(await N.googleSignIn(hint)) : await G.signIn(clientId, hint);
     let acc = this.googleAccount(g.email);
     if (acc) Object.assign(acc, g, { expired: false });
     else this.google.push(acc = { ...g, expired: false });
@@ -233,8 +235,18 @@ export const store = {
     return acc;
   },
 
+  // The desktop app keeps a refresh token, so it never has to ask again.
+  async freshToken(acc) {
+    if (!N.googleRefreshes || (acc.token && Date.now() < acc.expiresAt - 120000)) return;
+    const r = await N.googleToken(acc.email).catch(() => null);
+    if (r?.access_token) Object.assign(acc, { token: r.access_token, expiresAt: Date.now() + r.expires_in * 1000, scope: r.scope, expired: false });
+    else this.expireGoogle(acc);
+  },
+
   async syncGoogle(acc) {
-    if (!this.cloud || acc.expired || acc.syncing) return;
+    if (!this.cloud || acc.syncing) return;
+    await this.freshToken(acc);
+    if (acc.expired) { this.emit(); return; }
     acc.syncing = true;
     acc.status = 'SYNCING...';
     this.emit();
@@ -255,7 +267,7 @@ export const store = {
     }
   },
 
-  syncAllGoogle() { return Promise.all(this.google.filter(g => !g.expired).map(g => this.syncGoogle(g))); },
+  syncAllGoogle() { return Promise.all(this.google.filter(g => N.googleRefreshes || !g.expired).map(g => this.syncGoogle(g))); },
 
   expireGoogle(acc) {
     acc.expired = true;
@@ -267,7 +279,8 @@ export const store = {
   // Stops syncing an account. Its calendars stay unless removeData.
   async disconnectGoogle(email, removeData) {
     const acc = this.googleAccount(email);
-    if (acc?.token) G.revoke(acc.token);
+    if (acc?.token && !N.googleRefreshes) G.revoke(acc.token);
+    N.googleForget(email);
     this.google = this.google.filter(g => g.email !== email);
     this.persistGoogle();
     if (removeData && this.cloud) {
@@ -497,6 +510,7 @@ export const store = {
   // Answering an invite goes to Google (the organizer is there), then the copy here follows.
   async rsvp(ev, status) {
     const acc = this.googleAccount(ev.ext?.email);
+    if (acc) await this.freshToken(acc);
     if (!acc || acc.expired) throw new Error(`Reconnect ${ev.ext?.email || 'Google'} to answer invites`);
     const attendees = ev.attendees.map(a => a.self ? { ...a, responseStatus: status } : a);
     try { await G.patchEvent(acc, ev.ext.cal, ev.extId, { attendees }); }

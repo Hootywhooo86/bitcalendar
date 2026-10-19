@@ -3,6 +3,7 @@ import * as D from './dates.js';
 import { store } from './store.js';
 import * as V from './views.js';
 import * as M from './modals.js';
+import * as N from './native.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const MODES = ['month', 'week', 'day', 'agenda'];
@@ -160,6 +161,35 @@ async function load() {
   ]);
   document.body.classList.remove('busy');
   if (got.some(Boolean)) render();
+  syncDevice();
+}
+
+// ---- the installed apps: reminders on the device + the home-screen widget ----
+
+let deviceTimer;
+function syncDevice() {
+  if (!N.isNative) return;
+  clearTimeout(deviceTimer);
+  deviceTimer = setTimeout(async () => {
+    const now = new Date(), from = D.addDays(D.startOfDay(now), -40), to = D.addDays(D.startOfDay(now), 62);
+    await store.ensureRange(from, to);
+    const h24 = store.settings.h24;
+    // Next two weeks of reminders.
+    const soon = store.eventsBetween(now, D.addDays(now, 15)).flatMap(e => {
+      const mins = e.reminder === 'default' ? store.calendar(e.calKey)?.defaultReminder : e.reminder;
+      if (mins == null || e.start < now) return [];
+      const at = D.addMinutes(e.start, -mins);
+      if (at <= now) return [];
+      const time = e.allDay ? 'ALL DAY' : D.fmtTime(e.start, h24);
+      return [{ key: `${e.uid}@${+e.start}`, at, title: e.title, body: [mins ? `IN ${mins < 60 ? mins + ' MIN' : mins < 1440 ? Math.round(mins / 60) + ' H' : Math.round(mins / 1440) + ' DAYS'}` : 'NOW', `${D.fmtDay(e.start)} ${time}`, e.location].filter(Boolean).join(' · '), day: D.ymd(e.start), event: e.rowId || e.id }];
+    }).sort((a, b) => a.at - b.at);
+    N.scheduleReminders(store.settings.deviceReminders === false ? [] : soon).catch(err => console.warn('reminders', err));
+    N.updateWidget({
+      v: 1, at: Date.now(), weekStart: store.settings.weekStart, h24,
+      events: store.eventsBetween(from, to).slice(0, 600).map(e => ({ t: e.title, s: +e.start, e: +e.end, a: e.allDay ? 1 : 0, c: e.color, d: D.ymd(e.start) })),
+      tasks: store.visibleTasks().filter(t => t.due && !t.completed).slice(0, 200).map(t => ({ t: t.title, d: D.ymd(t.due) })),
+    });
+  }, 1500);
 }
 
 function refresh() { render(); load(); }
@@ -218,6 +248,9 @@ function newEventAt(day, minutes) {
 
 document.addEventListener('click', async e => {
   const t = e.target;
+  // Installed apps: outside links open in the real browser.
+  const ext = N.isNative && t.closest('a[target=_blank]');
+  if (ext) { e.preventDefault(); return N.openExternal(ext.href); }
   const btn = sel => t.closest(sel);
   // Phones: a tap outside an open drawer closes it.
   if (narrow() && !btn('#modalRoot')) {
@@ -368,7 +401,7 @@ document.addEventListener('keydown', e => {
 
 const notified = new Set(JSON.parse(sessionStorage.getItem('bitcal.notified') || '[]'));
 function checkReminders() {
-  if (store.settings.push || !store.settings.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
+  if (N.isNative || store.settings.push || !store.settings.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
   const now = new Date();
   for (const ev of store.eventsBetween(now, D.addDays(now, 2))) {
     if (ev.allDay || ev.start < D.addMinutes(now, -5)) continue;
@@ -394,11 +427,15 @@ async function openFromLink(day, rowId) {
   if (ev) M.openEvent(ev, e => M.openEditor(e));
 }
 navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'open') openFromLink(e.data.day, e.data.event); });
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && !N.isNative) navigator.serviceWorker.register('sw.js').catch(() => {});
+N.onOpen((day, ev) => openFromLink(day || D.ymd(new Date()), ev));
+N.onAuthLink(url => M.run(() => store.handleAuthLink(url), 'SIGNED IN'));
+N.onResume(() => { if (Date.now() - (store.lastRefresh || 0) > 5 * 60000) store.refreshAll(); else load(); });
+document.body.dataset.platform = N.platform;
 
 // ---- start ----
 
-store.on(msg => msg ? M.toast(msg) : refresh());
+store.on(msg => { if (msg) M.toast(msg); else { refresh(); syncDevice(); } });
 let wasNarrow = narrow();
 addEventListener('resize', () => { if (narrow() !== wasNarrow) { wasNarrow = narrow(); refresh(); } });
 setInterval(() => { if (!state.drag && !M.modalOpen()) { renderSidebar(); if (state.mode === 'week' || state.mode === 'day') renderMain(); } checkReminders(); }, 30000);

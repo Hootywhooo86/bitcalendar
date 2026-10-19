@@ -1,0 +1,24 @@
+{
+  "name": "bitcalendar",
+  "private": true,
+  "type": "module",
+  "description": "Bitcalendar: the 128bit pixel calendar. Web app in app/, Android in android/, Windows in desktop/.",
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs",
+    "android:sync": "npx cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "android:release": "npm run android:sync && cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/browser": "8.0.4",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/local-notifications": "8.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2",
+    "@supabase/supabase-js": "2.117.2",
+    "esbuild": "0.28.2"
+  }
+}

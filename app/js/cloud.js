@@ -1,6 +1,7 @@
 // The 128bit account: sign-in plus Bitcalendar's tables in the shared Supabase project
 // (supabase/bitcalendar.sql). Rows go in and out as-is; store.js turns them into events.
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+import { createClient } from '../vendor/supabase.js';
+import { authRedirect } from './native.js';
 
 const cfg = window.BITCAL_CONFIG || {};
 export const configured = !!(cfg.supabaseUrl && cfg.supabaseKey);
@@ -21,12 +22,22 @@ export function onAuth(fn) { sb?.auth.onAuthStateChange((event, session) => fn(e
 export async function signIn(email, password) { need(); return check(await sb.auth.signInWithPassword({ email, password })).user; }
 export async function signUp(email, password) {
   need();
-  const data = check(await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.href.split('#')[0] } }));
+  const data = check(await sb.auth.signUp({ email, password, options: { emailRedirectTo: authRedirect() } }));
   return { user: data.session ? data.user : null, confirm: !data.session };
 }
 export async function sendLink(email) {
   need();
-  check(await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href.split('#')[0].split('?')[0], shouldCreateUser: true } }));
+  check(await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: authRedirect(), shouldCreateUser: true } }));
+}
+// An emailed sign-in link that opened the Android or desktop app (…://auth#access_token=…).
+export async function handleAuthLink(url) {
+  need();
+  const u = new URL(url.replace(/^[\w.+-]+:\/\//, 'https://x/'));
+  const p = new URLSearchParams(u.hash.slice(1) || u.search.slice(1));
+  if (p.get('error_description')) throw new Error(p.get('error_description'));
+  if (p.get('code')) return check(await sb.auth.exchangeCodeForSession(p.get('code'))).user;
+  if (p.get('access_token')) return check(await sb.auth.setSession({ access_token: p.get('access_token'), refresh_token: p.get('refresh_token') })).user;
+  throw new Error('That sign-in link is missing its key, ask for a new one');
 }
 export async function signOut() { if (sb) await sb.auth.signOut(); }
 

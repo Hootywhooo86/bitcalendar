@@ -1,0 +1,15 @@
+{
+  "appId": "app.bit128.bitcalendar",
+  "appName": "Bitcalendar",
+  "webDir": "app",
+  "android": {
+    "backgroundColor": "#0d0d1a",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_bitcal",
+      "iconColor": "#b388ff"
+    }
+  }
+}
