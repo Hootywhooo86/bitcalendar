@@ -175,15 +175,15 @@ begin
 end $$;
 
 -- A browser signing up for reminders. An endpoint moves to whoever signs in on that browser.
+-- SQL (not plpgsql) so the parameters can share the column names; signed out, user_id's
+-- not-null check refuses it.
 create or replace function public.bitcal_save_push(endpoint text, p256dh text, auth text, tz text, h24 boolean) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  if (select auth.uid()) is null then raise exception 'Sign in first'; end if;
+language sql security definer set search_path = public as $$
   insert into bitcal_push (endpoint, user_id, p256dh, auth, tz, h24)
-  values (endpoint, (select auth.uid()), p256dh, auth, coalesce(tz, 'UTC'), coalesce(h24, false))
+  values ($1, auth.uid(), $2, $3, coalesce($4, 'UTC'), coalesce($5, false))
   on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth,
     tz = excluded.tz, h24 = excluded.h24;
-end $$;
+$$;
 
 create or replace function public.bitcal_vapid_public() returns text
 language sql stable security definer set search_path = public as $$ select public_key from bitcal_vapid where id = 1 $$;
