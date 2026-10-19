@@ -23,7 +23,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest already has the Android SDK (ANDROID_HOME); Gradle fetches platform 36 if missing.
       - run: npm ci
       - run: npx cap sync android
       - name: Release keystore
