@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitcalendar — 128bit Calendar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; image-rendering:pixelated; }
+  body {
+    background:#0d0d1a; color:#f5f5f5;
+    font-family:'Press Start 2P', monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding:32px 16px;
+  }
+  .scanlines::after {
+    content:""; position:fixed; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 2px, transparent 2px 4px);
+  }
+  .badge {
+    font-size:10px; color:#ff9f1c; border:3px solid #ff9f1c;
+    padding:8px 12px; margin-bottom:24px; letter-spacing:1px;
+  }
+  h1 { font-size:clamp(24px, 7vw, 48px); color:#b388ff; text-shadow:4px 4px 0 #4a148c; margin-bottom:8px; text-align:center; }
+  .tagline { font-size:11px; color:#9e9e9e; margin-bottom:32px; text-align:center; line-height:1.8; }
+  .widget-label { font-size:9px; color:#ff9f1c; margin-bottom:12px; letter-spacing:1px; }
+  .widget {
+    width:320px; max-width:92vw; background:#1a1a2e; border:6px solid #3d3d5c;
+    border-radius:18px; padding:20px 16px;
+    box-shadow:0 0 0 6px #0d0d1a, 0 0 40px rgba(179,136,255,.25);
+  }
+  .widget-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .widget-head h2 { font-size:12px; color:#b388ff; }
+  .nav { display:flex; gap:8px; }
+  .nav button {
+    font-family:'Press Start 2P',monospace; font-size:10px;
+    background:#2b2b45; color:#f5f5f5; border:0; border-radius:6px;
+    width:32px; height:32px; cursor:pointer; box-shadow:0 3px 0 #17172a;
+  }
+  .nav button:active { transform:translateY(3px); box-shadow:none; }
+  .dow { display:grid; grid-template-columns:repeat(7,1fr); margin-bottom:8px; }
+  .dow span { font-size:8px; color:#9e9e9e; text-align:center; }
+  .days { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .day {
+    font-size:9px; text-align:center; padding:9px 0; border-radius:6px;
+    background:#24243c; color:#cfcfcf; cursor:pointer;
+  }
+  .day.other { opacity:.25; }
+  .day.today { background:#b388ff; color:#0d0d1a; box-shadow:0 0 12px rgba(179,136,255,.7); }
+  .day.has-event::after { content:""; display:block; width:6px; height:6px; background:#ff9f1c; border-radius:50%; margin:4px auto 0; }
+  .day.today.has-event::after { background:#0d0d1a; }
+  .events { margin-top:14px; background:#101024; border:4px solid #3d3d5c; border-radius:8px; padding:12px; min-height:64px; }
+  .events h3 { font-size:9px; color:#ff9f1c; margin-bottom:10px; }
+  .events p { font-size:9px; color:#cfcfcf; line-height:2; }
+  .events .none { color:#55556e; }
+  .soon {
+    margin-top:32px; font-size:11px; color:#ff9f1c; text-align:center; line-height:2;
+    border:3px dashed #ff9f1c; padding:16px 20px; max-width:440px;
+  }
+  .waitlist { margin-top:24px; max-width:420px; width:100%; text-align:center; }
+  .waitlist p { font-size:10px; color:#9e9e9e; margin-bottom:12px; line-height:1.8; }
+  .waitlist form { display:flex; gap:8px; }
+  .waitlist input {
+    flex:1; font-family:'Press Start 2P',monospace; font-size:10px;
+    background:#1a1a2e; border:3px solid #3d3d5c; color:#f5f5f5; padding:12px;
+  }
+  .waitlist button {
+    font-family:'Press Start 2P',monospace; font-size:10px;
+    background:#b388ff; color:#0d0d1a; border:0; padding:12px 16px; cursor:pointer;
+    box-shadow:0 4px 0 #4a148c;
+  }
+  .waitlist button:active { transform:translateY(4px); box-shadow:none; }
+  footer { margin-top:auto; padding-top:32px; font-size:8px; color:#55556e; text-align:center; line-height:2; }
+  footer a { color:#b388ff; text-decoration:none; }
+</style>
+</head>
+<body class="scanlines">
+  <div class="badge">128BIT FAMILY</div>
+  <h1>BITCALENDAR</h1>
+  <p class="tagline">your schedule, but chunkier.<br>widget-first. pixel-always.</p>
+
+  <div class="widget-label">&#9654; LIVE WIDGET MOCK — TAP AROUND</div>
+  <div class="widget">
+    <div class="widget-head">
+      <h2 id="monthYear">—</h2>
+      <div class="nav">
+        <button id="prev" aria-label="previous month">&#9664;</button>
+        <button id="next" aria-label="next month">&#9654;</button>
+      </div>
+    </div>
+    <div class="dow"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+    <div class="days" id="days"></div>
+    <div class="events">
+      <h3 id="eventTitle">TODAY</h3>
+      <div id="eventList"><p class="none">no quests scheduled...</p></div>
+    </div>
+  </div>
+
+  <div class="soon">
+    &#9888; COMING SOON &#9888;<br>
+    <span style="color:#9e9e9e">we're filling in the squares...</span>
+  </div>
+
+  <div class="waitlist">
+    <p>want it on your home screen first?<br>drop your email, we'll ping you.</p>
+    <!-- TODO: replace with your Formspree endpoint, e.g. https://formspree.io/f/xxxxxx -->
+    <form action="https://formspree.io/f/REPLACE_ME" method="POST">
+      <input type="email" name="email" placeholder="you@email.com" required>
+      <button type="submit">PING ME</button>
+    </form>
+  </div>
+
+  <footer>
+    a 128bit app by <a href="https://github.com/Hootywhooo86">Hootywhooo86</a><br>
+    bitcalendar &bull; 128bit family
+  </footer>
+
+<script>
+  const MONTHS = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  // demo events keyed by ISO date — the real app syncs the 128bit event feed
+  const DEMO = {};
+  const today = new Date();
+  const iso = d => d.toISOString().slice(0,10);
+  DEMO[iso(today)] = ['+ Morning quest: log workout', '+ Call mom back'];
+  const sat = new Date(today); sat.setDate(sat.getDate() + ((6 - sat.getDay() + 7) % 7));
+  DEMO[iso(sat)] = ['+ Birthday dinner @ Nana\'s 5ish'];
+
+  let view = new Date(today.getFullYear(), today.getMonth(), 1);
+  const daysEl = document.getElementById('days');
+  const monthYear = document.getElementById('monthYear');
+  const eventTitle = document.getElementById('eventTitle');
+  const eventList = document.getElementById('eventList');
+
+  function render() {
+    monthYear.textContent = MONTHS[view.getMonth()] + ' ' + view.getFullYear();
+    daysEl.innerHTML = '';
+    const y = view.getFullYear(), m = view.getMonth();
+    const first = new Date(y, m, 1).getDay();
+    const count = new Date(y, m + 1, 0).getDate();
+    for (let i = 0; i < first; i++) {
+      const d = document.createElement('div');
+      d.className = 'day other';
+      d.textContent = new Date(y, m, 1 - first + i).getDate();
+      daysEl.appendChild(d);
+    }
+    for (let d = 1; d <= count; d++) {
+      const date = new Date(y, m, d);
+      const el = document.createElement('div');
+      el.className = 'day';
+      el.textContent = d;
+      const key = iso(date);
+      if (DEMO[key]) el.classList.add('has-event');
+      if (key === iso(today)) el.classList.add('today');
+      el.onclick = () => showEvents(date);
+      daysEl.appendChild(el);
+    }
+    showEvents(today);
+  }
+  function showEvents(date) {
+    const key = iso(date);
+    const isToday = key === iso(today);
+    eventTitle.textContent = isToday ? 'TODAY' : MONTHS[date.getMonth()] + ' ' + date.getDate();
+    const evts = DEMO[key];
+    eventList.innerHTML = evts
+      ? evts.map(e => `<p>${e}</p>`).join('')
+      : '<p class="none">no quests scheduled...</p>';
+  }
+  document.getElementById('prev').onclick = () => { view.setMonth(view.getMonth() - 1); render(); };
+  document.getElementById('next').onclick = () => { view.setMonth(view.getMonth() + 1); render(); };
+  render();
+</script>
+</body>
+</html>
