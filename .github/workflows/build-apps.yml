@@ -1,5 +1,6 @@
 # Builds the Android APK and the Windows installer + portable .exe on every push.
-# Push a tag like v1.1.0 to publish both as a GitHub Release.
+# To publish them as a GitHub Release: push a tag like v1.1.0, or run this workflow by hand
+# (Actions → Build apps → Run workflow) with a version filled in; it makes the tag itself.
 #
 # Optional repository secrets:
 #   BITCAL_KEYSTORE_BASE64, BITCAL_STORE_PASSWORD, BITCAL_KEY_ALIAS, BITCAL_KEY_PASSWORD
@@ -13,6 +14,11 @@ on:
     branches: ['**']
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish as a release with this version tag (e.g. v1.1.0). Empty: just build.'
+        required: false
+        default: ''
 
 jobs:
   android:
@@ -75,7 +81,7 @@ jobs:
         with: { name: windows, path: desktop/dist/*.exe }
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release != ''
     needs: [android, windows]
     runs-on: ubuntu-latest
     permissions: { contents: write }
@@ -84,5 +90,11 @@ jobs:
         with: { path: out, merge-multiple: true }
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release || github.ref_name }}
+          name: Bitcalendar ${{ inputs.release || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: out/*
           generate_release_notes: true
+          body: |
+            **Android:** download the `.apk` on your phone, open it, allow "install unknown apps". Widgets: long-press the home screen → Widgets → Bitcalendar.
+            **Windows:** `Bitcalendar-Setup-*.exe` installs it; `*-portable.exe` runs without installing. Unsigned, so SmartScreen asks once: More info → Run anyway.
