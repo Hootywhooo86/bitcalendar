@@ -104,7 +104,7 @@ public class UpNextWidget extends AppWidgetProvider {
         String date = Pixel.DOW3[today.get(Calendar.DAY_OF_WEEK) - 1] + " " + Pixel.MONTHS[today.get(Calendar.MONTH)].substring(0, 3) + " " + today.get(Calendar.DAY_OF_MONTH);
         cv.drawText(date, px + inner - dateP.measureText(date), py - dateP.ascent() + (th - (dateP.descent() - dateP.ascent())) / 2f, dateP);
 
-        float top = py + th * 1.9f, avail = h - top - py * 0.8f;
+        float top = py + th * 2.0f, avail = h - top - py * 0.6f;
         if (s.empty || next.isEmpty()) {
             TextPaint none = Pixel.text(c, headSize, Pixel.MUTE);
             Pixel.line(cv, s.empty ? "open bitcalendar to sync..." : "nothing coming up...", px, top, inner, none);
@@ -112,19 +112,19 @@ public class UpNextWidget extends AppWidgetProvider {
         }
         // Row = countdown line + title line (+ when line if there's room).
         float cdSize = headSize * 0.8f, titleSize = headSize * 1.05f, whenSize = headSize * 0.72f;
-        float rowH = (cdSize + titleSize + whenSize) * 1.55f;
+        float rowH = (cdSize + titleSize + whenSize) * 1.75f;
         boolean showWhen = true;
         int rows = (int) Math.floor(avail / rowH);
-        if (rows < 1) { showWhen = false; rowH = (cdSize + titleSize) * 1.45f; rows = Math.max(1, (int) Math.floor(avail / rowH)); }
+        if (rows < 1) { showWhen = false; rowH = (cdSize + titleSize) * 1.7f; rows = Math.max(1, (int) Math.floor(avail / rowH)); }
         rows = Math.min(rows, Math.min(4, next.size()));
         TextPaint cd = Pixel.text(c, cdSize, Pixel.ORANGE), tt = Pixel.text(c, titleSize, Pixel.TEXT), wh = Pixel.text(c, whenSize, Pixel.DIM);
         for (int i = 0; i < rows; i++) {
             Snapshot.Event e = next.get(i);
             float y = top + i * rowH, bar = Math.max(3f, w * 0.012f);
-            cv.drawRect(px, y, px + bar, y + rowH * 0.86f, Pixel.fill(e.color));
+            cv.drawRect(px, y, px + bar, y + rowH * 0.8f, Pixel.fill(e.color));
             float x = px + bar * 3.2f, tw = inner - bar * 3.2f;
             Pixel.line(cv, countdown(e, now), x, y, tw, cd);
-            float ty = y + cdSize * 1.55f;
+            float ty = y + cdSize * 1.65f;
             Pixel.line(cv, e.title, x, ty, tw, tt);
             if (showWhen) Pixel.line(cv, when(e, s.h24), x, ty + titleSize * 1.5f, tw, wh);
         }

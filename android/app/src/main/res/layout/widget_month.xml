@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Generated with MonthWidget.draw()'s grid in mind: keep the weights in step with it. -->
+<!-- Generated with MonthWidget.draw()'s grid in mind: keep the weights in step with it.
+     Only view classes widgets allow (FrameLayout, LinearLayout, ImageView…): a plain View is "Can't load widget". -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -13,16 +14,16 @@
         android:contentDescription="@string/widget_month_label" />
 
     <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
-        <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="4" />
+        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="4" />
         <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="92" android:orientation="horizontal">
-        <View android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="4" />
+        <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="4" />
         <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="92" android:orientation="vertical">
             <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="2" android:orientation="horizontal">
                 <FrameLayout android:id="@+id/hdr_title" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="5" />
                 <FrameLayout android:id="@+id/hdr_prev" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
                 <FrameLayout android:id="@+id/hdr_next" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
             </LinearLayout>
-            <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+            <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
             <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="2" android:orientation="horizontal">
                 <FrameLayout android:id="@+id/c0" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
                 <FrameLayout android:id="@+id/c1" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
@@ -78,8 +79,8 @@
                 <FrameLayout android:id="@+id/c41" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
             </LinearLayout>
         </LinearLayout>
-        <View android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="4" />
+        <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="4" />
         </LinearLayout>
-        <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="4" />
+        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="4" />
     </LinearLayout>
 </FrameLayout>

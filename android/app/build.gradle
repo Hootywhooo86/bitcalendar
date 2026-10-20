@@ -7,8 +7,8 @@ android {
         applicationId "app.bit128.bitcalendar"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1.0"
+        versionCode 3
+        versionName "1.1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -30,6 +30,20 @@ android {
                 storePassword ksValue('storePassword')
                 keyAlias ksValue('keyAlias')
                 keyPassword ksValue('keyPassword')
+            }
+        }
+    }
+    // Widget tests run the real Android framework on the JVM (Robolectric), including how the
+    // home screen inflates and draws widgets: ./gradlew testDebugUnitTest
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            all {
+                systemProperty 'bitcal.out', file("$buildDir/widget-renders").absolutePath
+                jvmArgs '--add-exports=java.base/jdk.internal.access=ALL-UNNAMED', '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED', '--add-opens=java.base/java.io=ALL-UNNAMED', '--add-opens=java.base/java.lang=ALL-UNNAMED', '--add-opens=java.base/java.util=ALL-UNNAMED', '--add-opens=java.base/java.nio=ALL-UNNAMED'
+                // Machines that can't reach Maven from inside tests: put the android-all jar here.
+                def jars = new File(System.getProperty('user.home'), 'robolectric-jars')
+                if (jars.isDirectory()) { systemProperty 'robolectric.offline', 'true'; systemProperty 'robolectric.dependency.dir', jars.absolutePath }
             }
         }
     }
@@ -55,6 +69,8 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    testImplementation "org.robolectric:robolectric:4.17"
+    testImplementation "androidx.test:core:1.7.0"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

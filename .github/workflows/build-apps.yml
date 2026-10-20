@@ -49,6 +49,7 @@ jobs:
           BITCAL_KEY_PASSWORD: ${{ secrets.BITCAL_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
+          ./gradlew testDebugUnitTest --no-daemon   # widgets inflate + draw like on a home screen
           ./gradlew assembleDebug $([ -n "$BITCAL_STORE_FILE" ] && echo assembleRelease) --no-daemon
           mkdir -p ../out
           cp app/build/outputs/apk/debug/app-debug.apk "../out/Bitcalendar-${VERSION//\//-}.apk"
