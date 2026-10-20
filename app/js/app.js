@@ -104,7 +104,7 @@ function renderSidebar() {
     const eg = evGroups.find(g => g.label === label), tg = taskGroups.find(g => g.label === label);
     const email = (eg || tg).email;
     const g = email && store.googleAccount(email);
-    const status = email ? (g ? (g.expired ? `<button class="btn tiny primary" data-reconnect="${V.esc(email)}">RECONNECT</button>` : `<small class="gstat">${V.esc(g.status || 'CONNECTED')}</small>`) : '<small class="gstat">NOT SYNCING</small>') : '';
+    const status = email ? (g ? (g.expired ? `<button class="btn tiny primary" data-reconnect="${V.esc(email)}">RECONNECT</button>` : `<small class="gstat${g.status === 'SYNC FAILED' ? ' warn' : ''}">${V.esc(g.status || 'CONNECTED')}</small>`) : '<small class="gstat warn">NOT SYNCING</small>') : '';
     return `<div class="cgroup"><h4 title="${V.esc(label)}">${V.esc(label)}</h4>${status}
       ${(eg?.items || []).map(c => row(c)).join('')}${(tg?.items || []).map(l => row(l, true)).join('')}</div>`;
   }).join('') + (store.cloud

@@ -127,7 +127,8 @@ body.tasks-open #tasksBtn { background: var(--purple); color: var(--bg); }
 .cal:hover .edit, .cal .edit:focus-visible { opacity: 1; }
 .cal .edit:hover { color: var(--purple); }
 @media (hover: none) { .cal .edit { opacity: 1; } }
-.gstat { display: block; font-size: 7px; color: var(--green); margin: -2px 0 8px; line-height: 1.6; }
+.gstat { display: block; font-size: 7px; color: var(--green); margin: -2px 0 8px; line-height: 1.6; overflow-wrap: anywhere; }
+.gstat.warn { color: var(--orange); }
 .addcal { display: flex; gap: 6px; margin: 4px 0 4px; flex-wrap: wrap; }
 .hint { font-size: 7px; color: var(--dim); line-height: 2; margin: 4px 0; }
 .accts .sub { font-size: 8px; color: var(--orange); margin: 8px 0 0; }
@@ -138,9 +139,12 @@ body.tasks-open #tasksBtn { background: var(--purple); color: var(--bg); }
 .cal input:checked + i { background: var(--c, var(--purple)); box-shadow: inset 0 0 0 2px var(--panel); }
 .cal input:focus-visible + i { outline: 3px solid var(--orange); }
 .cal span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pbtns { display: flex; gap: 6px; margin-top: 8px; }
-.pbtns .wide { flex: 1; width: auto; }
+.pbtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pbtns .wide { flex: 1 1 100%; width: 100%; }
+.pbtns #refreshBtn { flex: 1 1 auto; }
+.pbtns .btn { min-width: 0; }
 .keys { font-size: 7px; color: var(--mute); line-height: 2; text-align: center; }
+@media (hover: none), (max-width: 760px) { .keys { display: none; } }
 
 /* month view */
 .month { display: flex; flex-direction: column; height: 100%; min-height: 560px; padding: 12px; gap: 6px; }
@@ -308,7 +312,7 @@ input[type=date]::-webkit-calendar-picker-indicator, input[type=time]::-webkit-c
 .acct img, .acct .ph { width: 32px; height: 32px; flex: none; display: grid; place-items: center; background: var(--btn); color: var(--purple); font-size: 12px; }
 .acct .ph.local { color: var(--orange); }
 .acct > div { flex: 1; min-width: 0; }
-.acct b { display: block; font-weight: normal; font-size: 9px; margin-bottom: 6px; overflow-wrap: anywhere; }
+.acct b { display: block; font-weight: normal; font-size: 9px; line-height: 1.7; margin-bottom: 6px; overflow-wrap: anywhere; }
 .acct small { display: block; font-size: 7px; color: var(--dim); line-height: 1.8; overflow-wrap: anywhere; }
 .acct small.ok { color: var(--green); } .acct small.warn { color: var(--orange); }
 .aact { display: flex; gap: 6px; flex: none !important; }
@@ -361,4 +365,14 @@ input[type=date]::-webkit-calendar-picker-indicator, input[type=time]::-webkit-c
   .acal { display: none; }
   .row2 { flex-direction: column; }
   .modal { padding: 16px; }
+  /* START / END: label on its own line, date and time side by side with room for their text */
+  .when .field > span { width: 100%; }
+  .when input[type=date], .when input[type=time] { flex: 1 1 0; font-size: 9px; padding: 9px 6px; }
+  /* Accounts: buttons under the name, so a long email gets the full width */
+  .acct > div { flex: 1 1 calc(100% - 46px); }
+  .aact { flex: 1 1 100% !important; justify-content: flex-end; flex-wrap: wrap; }
+}
+/* Very narrow phones: date and time each get a full row */
+@media (max-width: 380px) {
+  .when input[type=date], .when input[type=time] { flex: 1 1 100%; }
 }
