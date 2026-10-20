@@ -483,7 +483,9 @@ export function openSettings() {
   });
 }
 
-const SQL_URL = 'https://raw.githubusercontent.com/Hootywhooo86/bitcalendar/ccr-0aaf725e-pi88ux/supabase/bitcalendar.sql';
+// The block every 128bit app shares (accounts, settings, the family feed), then Bitcalendar's tables.
+const SQL_BASE = 'https://raw.githubusercontent.com/Hootywhooo86/bitcalendar/ccr-0aaf725e-pi88ux/supabase/';
+const SQL_FILES = ['family-feed.sql', 'bitcalendar.sql'];
 const SQL_EDITOR = 'https://supabase.com/dashboard/project/wvflpwtaszpstmjpkrhu/sql/new';
 
 // The 128bit account works, but Bitcalendar's tables were never made (supabase/bitcalendar.sql).
@@ -509,9 +511,12 @@ export function openDbHelp() {
     if (act === 'close') closeModal(m);
     if (act === 'open') N.openExternal(SQL_EDITOR);
     if (act === 'copy') run(async () => {
-      const res = await fetch(SQL_URL);
-      if (!res.ok) throw new Error('Could not fetch the SQL, it is supabase/bitcalendar.sql in the repo');
-      await navigator.clipboard.writeText(await res.text());
+      const parts = await Promise.all(SQL_FILES.map(async f => {
+        const res = await fetch(SQL_BASE + f);
+        if (!res.ok) throw new Error(`Could not fetch the SQL, it is supabase/${f} in the repo`);
+        return res.text();
+      }));
+      await navigator.clipboard.writeText(parts.join('\n'));
     }, 'SQL COPIED · PASTE IT IN THE SQL EDITOR');
     if (act === 'check') {
       await store.refreshAll();

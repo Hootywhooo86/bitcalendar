@@ -1,13 +1,13 @@
--- Bitcalendar's own storage in the 128bit Supabase project. Run once in Supabase → SQL Editor (safe to run again).
--- Every row belongs to one account; row-level security keeps it that way. The owner is the signed-in
--- token's "sub": a Clerk user ID (user_…) when signing in with Clerk (Supabase → Authentication →
--- Third-party auth → Clerk), or a Supabase user's ID. Hence text, and no link to auth.users.
+-- Bitcalendar's own storage in the 128bit Supabase project. Run once in Supabase → SQL Editor (safe to
+-- run again), after family-feed.sql (the block every 128bit app shares: accounts, settings, the family feed).
+-- Every row belongs to one 128bit account (account_sub(): the Clerk user ID, user_…); row-level
+-- security keeps it that way.
 
 -- Calendars (kind 'events') and task lists (kind 'tasks'). ext is set when mirrored from Google:
 -- {provider:'google', email, id, syncToken | lastSync}.
 create table if not exists public.bitcal_calendars (
   id uuid primary key default gen_random_uuid(),
-  user_id text not null default (auth.jwt() ->> 'sub'),
+  user_id text not null default public.account_sub(),
   kind text not null default 'events' check (kind in ('events', 'tasks')),
   name text not null check (length(name) between 1 and 200),
   color text not null default '#ff9f1c',
@@ -27,7 +27,7 @@ create unique index if not exists bitcal_calendars_ext on public.bitcal_calendar
 -- edited: changed in Bitcalendar, so the Google mirror leaves it alone.
 create table if not exists public.bitcal_events (
   id uuid primary key default gen_random_uuid(),
-  user_id text not null default (auth.jwt() ->> 'sub'),
+  user_id text not null default public.account_sub(),
   calendar_id uuid not null,
   title text not null default '',
   starts_at timestamptz not null,
@@ -48,7 +48,7 @@ create table if not exists public.bitcal_events (
   edited boolean not null default false,
   deleted_at timestamptz,
   updated_at timestamptz not null default now(),
-  foreign key (user_id, calendar_id) references public.bitcal_calendars (user_id, id) on delete cascade,
+  foreign key (user_id, calendar_id) references public.bitcal_calendars (user_id, id) on update cascade on delete cascade,
   unique (calendar_id, ext_id)
 );
 create index if not exists bitcal_events_range on public.bitcal_events (user_id, starts_at);
@@ -56,7 +56,7 @@ create index if not exists bitcal_events_cal on public.bitcal_events (calendar_i
 
 create table if not exists public.bitcal_tasks (
   id uuid primary key default gen_random_uuid(),
-  user_id text not null default (auth.jwt() ->> 'sub'),
+  user_id text not null default public.account_sub(),
   list_id uuid not null,
   title text not null default '',
   notes text not null default '',
@@ -67,7 +67,7 @@ create table if not exists public.bitcal_tasks (
   edited boolean not null default false,
   deleted_at timestamptz,
   updated_at timestamptz not null default now(),
-  foreign key (user_id, list_id) references public.bitcal_calendars (user_id, id) on delete cascade,
+  foreign key (user_id, list_id) references public.bitcal_calendars (user_id, id) on update cascade on delete cascade,
   unique (list_id, ext_id)
 );
 create index if not exists bitcal_tasks_list on public.bitcal_tasks (list_id);
@@ -76,7 +76,7 @@ create index if not exists bitcal_tasks_user on public.bitcal_tasks (user_id);
 -- Browsers that get push reminders.
 create table if not exists public.bitcal_push (
   endpoint text primary key,
-  user_id text not null default (auth.jwt() ->> 'sub'),
+  user_id text not null default public.account_sub(),
   p256dh text not null,
   auth text not null,
   tz text not null default 'UTC',
@@ -109,6 +109,21 @@ create table if not exists public.bitcal_vapid (
   private_jwk jsonb not null
 );
 
+-- Tables made by an earlier version of this file.
+do $$
+declare t text;
+begin
+  foreach t in array array['bitcal_calendars', 'bitcal_events', 'bitcal_tasks', 'bitcal_push'] loop
+    execute format('alter table public.%I alter column user_id set default public.account_sub()', t);
+  end loop;
+  alter table public.bitcal_events drop constraint if exists bitcal_events_user_id_calendar_id_fkey,
+    add constraint bitcal_events_user_id_calendar_id_fkey foreign key (user_id, calendar_id)
+      references public.bitcal_calendars (user_id, id) on update cascade on delete cascade;
+  alter table public.bitcal_tasks drop constraint if exists bitcal_tasks_user_id_list_id_fkey,
+    add constraint bitcal_tasks_user_id_list_id_fkey foreign key (user_id, list_id)
+      references public.bitcal_calendars (user_id, id) on update cascade on delete cascade;
+end $$;
+
 create or replace function public.bitcal_touch() returns trigger language plpgsql set search_path = public as $$
 begin new.updated_at := now(); return new; end $$;
 drop trigger if exists bitcal_events_touch on public.bitcal_events;
@@ -124,14 +139,14 @@ alter table public.bitcal_sent enable row level security;
 alter table public.bitcal_vapid enable row level security;
 alter table public.bitcal_google enable row level security;
 drop policy if exists own_read on public.bitcal_google;
-create policy own_read on public.bitcal_google for select to authenticated using (user_id = (select auth.jwt() ->> 'sub'));
+create policy own_read on public.bitcal_google for select to authenticated using (user_id = (select public.account_sub()));
 
 do $$
 declare t text;
 begin
   foreach t in array array['bitcal_calendars', 'bitcal_events', 'bitcal_tasks', 'bitcal_push'] loop
     execute format('drop policy if exists own on public.%I', t);
-    execute format('create policy own on public.%I for all to authenticated using (user_id = (select auth.jwt() ->> ''sub'')) with check (user_id = (select auth.jwt() ->> ''sub''))', t);
+    execute format('create policy own on public.%I for all to authenticated using (user_id = (select public.account_sub())) with check (user_id = (select public.account_sub()))', t);
   end loop;
 end $$;
 
@@ -201,7 +216,7 @@ end $$;
 create or replace function public.bitcal_save_push(endpoint text, p256dh text, auth text, tz text, h24 boolean) returns void
 language sql security definer set search_path = public as $$
   insert into bitcal_push (endpoint, user_id, p256dh, auth, tz, h24)
-  values ($1, auth.jwt() ->> 'sub', $2, $3, coalesce($4, 'UTC'), coalesce($5, false))
+  values ($1, public.account_sub(), $2, $3, coalesce($4, 'UTC'), coalesce($5, false))
   on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth,
     tz = excluded.tz, h24 = excluded.h24;
 $$;
