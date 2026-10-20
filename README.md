@@ -51,6 +51,18 @@ Live at https://hootywhooo86.github.io/bitcalendar/app/ — a static page, no bu
 
 `config.js` already points at the project (URL + publishable key; neither is secret — row-level security does the protecting). `supabase/functions/bitcal-reminders/recur.js` is a copy of `app/js/recur.js`; keep them in step.
 
+### Clerk (sign-in + Google in one)
+
+With a Clerk publishable key in `app/config.js` (`clerkPublishableKey`), Clerk does the signing in (email, password or **Sign in with Google**) on the web, Android and Windows. Supabase trusts Clerk's session tokens, so the database rules work as before. **Google is linked through Clerk** (asking for Calendar + Tasks), and the `bitcal-google` function syncs it from the server with the token Clerk keeps: on SYNC, when the app opens, and every 10 minutes even with every device off. No per-device CONNECT GOOGLE, no Google client IDs in the apps. Without a key the app uses the 128bit sign-in as before.
+
+1. **Clerk** (clerk.com → Create application): turn on **Email** and **Google**.
+2. **Google with Calendar access:** Clerk → **Configure → SSO connections → Google** → turn on **Use custom credentials**. In Google Cloud (Calendar API + Tasks API on, consent screen with your Gmail as a test user) make an OAuth client of type **Web application**, with **Authorized redirect URI** = the one Clerk shows on that page. Paste its client ID + secret into Clerk, and under **Scopes** add `https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks`.
+3. **Clerk → Supabase:** Clerk dashboard → **Integrations → Supabase** → activate; copy the **Clerk domain**. Supabase → **Authentication → Sign In / Providers → Third-party auth → Add provider → Clerk** → paste it.
+4. **Keys:** put the **publishable key** (`pk_test_…`) in `app/config.js` → `clerkPublishableKey`. In Supabase → Edge Functions → Secrets add `CLERK_SECRET_KEY` (`sk_test_…`, Clerk → API keys) and `CLERK_PUBLISHABLE_KEY` (the pk again).
+5. **Database + server:** run `supabase/bitcalendar.sql`; deploy `supabase/functions/bitcal-google/` with **Verify JWT off** (it checks Clerk's tokens itself) and `bitcal-reminders/`; run `supabase/bitcalendar-reminders.sql` (both schedules).
+
+`bitcal-google` carries copies of `app/js/gsync.js`, `google.js` and `recur.js`: after changing those, `npm run share`.
+
 ### Connect Google (one-time setup)
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create a project.

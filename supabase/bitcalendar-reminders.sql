@@ -15,3 +15,14 @@ select cron.schedule('bitcal-reminders', '* * * * *', $$
 $$);
 -- Old sent-reminder rows are cleared by the function itself. To stop reminders:
 --   select cron.unschedule('bitcal-reminders');
+
+-- With Clerk: the server syncs Google for everyone who linked it, every 10 minutes
+-- (supabase/functions/bitcal-google; it skips anyone synced in the last 9 minutes).
+select cron.unschedule(jobid) from cron.job where jobname = 'bitcal-google';
+select cron.schedule('bitcal-google', '*/10 * * * *', $$
+  select net.http_post(
+    url := 'https://wvflpwtaszpstmjpkrhu.supabase.co/functions/v1/bitcal-google',
+    headers := jsonb_build_object('Content-Type', 'application/json'),
+    body := '{"action":"cron"}'::jsonb,
+    timeout_milliseconds := 60000)
+$$);

@@ -7,7 +7,8 @@
     "vendor": "node scripts/vendor.mjs",
     "android:sync": "npx cap sync android",
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
-    "android:release": "npm run android:sync && cd android && ./gradlew assembleRelease"
+    "android:release": "npm run android:sync && cd android && ./gradlew assembleRelease",
+    "share": "cp app/js/recur.js supabase/functions/bitcal-reminders/recur.js && cp app/js/recur.js app/js/gsync.js app/js/google.js supabase/functions/bitcal-google/"
   },
   "dependencies": {
     "@capacitor/android": "8.5.2",

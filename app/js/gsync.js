@@ -1,7 +1,9 @@
 // Google → Bitcalendar. Each Google calendar and task list gets a Bitcalendar twin; events and
 // tasks are copied over, then only changes (syncToken / updatedMin) on every later sync.
 // Anything changed or deleted in Bitcalendar stays as it is (bitcal_mirror checks `edited`).
-import * as C from './cloud.js';
+// Runs in the app (db = cloud.js) and on the server (supabase/functions/bitcal-google, which has a copy
+// of this file with google.js and recur.js; keep them in step). db: {listCalendars, insertCalendar,
+// updateCalendar, mirror, mirrorTasks}.
 import * as G from './google.js';
 import { lastStart, safeTz, wall } from './recur.js';
 
@@ -50,16 +52,16 @@ export const taskRow = t => t.deleted
   : { ext_id: t.id, title: t.title || '(no title)', notes: t.notes || '', due: t.due ? t.due.slice(0, 10) : null, done: t.status === 'completed', done_at: t.completed || null };
 
 // Finds (or makes) the Bitcalendar twin of a Google calendar / task list.
-async function twin(cals, kind, email, id, fields) {
+async function twin(db, cals, kind, email, id, fields) {
   const found = cals.find(c => c.kind === kind && c.ext?.provider === 'google' && c.ext.email === email && c.ext.id === id);
   if (found) return found;
   try {
-    const row = await C.insertCalendar({ kind, ...fields, ext: { provider: 'google', email, id } });
+    const row = await db.insertCalendar({ kind, ...fields, ext: { provider: 'google', email, id } });
     cals.push(row);
     return row;
   } catch {
     // Another device made it first.
-    const fresh = await C.listCalendars();
+    const fresh = await db.listCalendars();
     const again = fresh.find(c => c.kind === kind && c.ext?.provider === 'google' && c.ext.email === email && c.ext.id === id);
     if (!again) throw new Error(`couldn't add ${fields.name}`);
     cals.push(again);
@@ -72,7 +74,7 @@ async function send(fn, id, rows) {
 }
 
 // One sync of one Google account. progress(text) reports what it's on. Returns counts.
-export async function syncAccount(acc, cals, progress = () => {}) {
+export async function syncAccount(acc, cals, db, progress = () => {}) {
   const email = acc.email;
   let events = 0, tasks = 0;
   const gcals = (await G.listCalendars(acc)).filter(c =>
@@ -80,7 +82,7 @@ export async function syncAccount(acc, cals, progress = () => {}) {
   for (const gcal of gcals) {
     const name = gcal.summaryOverride || gcal.summary || gcal.id;
     progress(`SYNCING ${name}`);
-    const cal = await twin(cals, 'events', email, gcal.id, {
+    const cal = await twin(db, cals, 'events', email, gcal.id, {
       name, color: gcal.backgroundColor || '#b388ff', hidden: gcal.selected === false,
       default_reminder: (gcal.defaultReminders || []).find(r => r.method === 'popup')?.minutes ?? null,
     });
@@ -89,11 +91,11 @@ export async function syncAccount(acc, cals, progress = () => {}) {
     catch (e) { if (e.status !== 410) throw e; res = await G.syncEvents(acc, gcal.id, null); }
     const rows = res.items.map(ev => eventRow(ev, gcal, email));
     // Series first, so their changed days can be crossed off them.
-    await send(C.mirror, cal.id, [...rows.filter(r => !r.skip_master), ...rows.filter(r => r.skip_master)]);
+    await send(db.mirror, cal.id, [...rows.filter(r => !r.skip_master), ...rows.filter(r => r.skip_master)]);
     events += rows.length;
     if (res.nextSyncToken) {
       cal.ext = { ...cal.ext, syncToken: res.nextSyncToken, synced: new Date().toISOString() };
-      await C.updateCalendar(cal.id, { ext: cal.ext });
+      await db.updateCalendar(cal.id, { ext: cal.ext });
     }
   }
   if (acc.tasksOk !== false) {
@@ -102,14 +104,14 @@ export async function syncAccount(acc, cals, progress = () => {}) {
     catch (e) { if (e.status === 403) acc.tasksOk = false; else throw e; }
     for (const l of lists) {
       progress(`SYNCING ${l.title}`);
-      const list = await twin(cals, 'tasks', email, l.id, { name: l.title, color: '#b388ff' });
+      const list = await twin(db, cals, 'tasks', email, l.id, { name: l.title, color: '#b388ff' });
       const startedAt = new Date().toISOString();
       const items = await G.listTasksSince(acc, l.id, list.ext.lastSync);
       const rows = items.filter(t => t.title || t.notes || t.deleted).map(taskRow);
-      await send(C.mirrorTasks, list.id, rows);
+      await send(db.mirrorTasks, list.id, rows);
       tasks += rows.length;
       list.ext = { ...list.ext, lastSync: startedAt };
-      await C.updateCalendar(list.id, { ext: list.ext });
+      await db.updateCalendar(list.id, { ext: list.ext });
     }
   }
   return { events, tasks };

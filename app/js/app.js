@@ -463,4 +463,9 @@ store.init().then(async () => {
   if (N.isNative) N.checkUpdate().then(u => { if (u) { update = u; renderBanner(); } }).catch(() => {});
   const p = new URLSearchParams(location.search);
   if (p.get('day')) { history.replaceState(null, '', location.pathname); openFromLink(p.get('day'), p.get('event')); }
+  // Back from linking Google (or sent here by the apps to do it): sign in if needed, then connect.
+  if (p.get('connect') === 'google') {
+    history.replaceState(null, '', location.pathname);
+    if (store.cloud) M.connect(); else { M.toast('Sign in (same account as in the app), then tap CONNECT GOOGLE'); M.openSignIn(); }
+  }
 });

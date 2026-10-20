@@ -122,12 +122,19 @@ const newer = (a, b) => {
   return false;
 };
 // The newest GitHub release, if it's newer than this app: {version, url} (the APK or the Windows installer).
+// Asks GitHub at most every 6 hours (its API allows 60 calls an hour per connection).
 export async function checkUpdate() {
   const mine = await appVersion().catch(() => null);
   if (!mine) return null;
-  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
-  if (!res.ok) return null;
-  const rel = await res.json();
+  let rel = null;
+  try { const c = JSON.parse(localStorage.getItem('bitcal.release')); if (c && Date.now() - c.at < 6 * 3600_000) rel = c.rel; } catch {}
+  if (!rel) {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!res.ok) return null;
+    const r = await res.json();
+    rel = { tag_name: r.tag_name, assets: (r.assets || []).map(a => ({ name: a.name, browser_download_url: a.browser_download_url })) };
+    try { localStorage.setItem('bitcal.release', JSON.stringify({ at: Date.now(), rel })); } catch {}
+  }
   if (!rel.tag_name || !newer(rel.tag_name, mine)) return null;
   const want = platform === 'android' ? /\.apk$/i : /Setup.*\.exe$/i;
   const asset = (rel.assets || []).find(a => want.test(a.name));

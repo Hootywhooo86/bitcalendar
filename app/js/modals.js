@@ -277,9 +277,14 @@ export function connect(hint) {
     toast('Sign in to your 128bit account first, then Google can pour in');
     return openSignIn();
   }
+  if (store.dbMissing) return openDbHelp();
+  // With Clerk, Google is linked through Clerk and synced by the server.
+  if (store.usesClerk) return run(async () => {
+    const acc = await store.connectGoogle(hint);
+    if (acc) toast(`GOOGLE (${acc.email}) IS IN · THE SERVER KEEPS IT SYNCED`);
+  });
   if (!store.clientId() && !N.googleRefreshes) return openSetup();
   if (!N.googleRefreshes && !G.gisReady()) { G.loadGis().catch(() => {}); return toast('Google sign-in is still loading, tap again in a sec'); }
-  if (store.dbMissing) return openDbHelp();
   return run(async () => {
     const acc = await store.connectGoogle(hint).catch(e => {
       if (N.platform === 'desktop' && /isn't set up yet/.test(e.message)) { openDesktopGoogle(); return null; }
@@ -291,6 +296,7 @@ export function connect(hint) {
 }
 
 export function openSignIn() {
+  if (store.usesClerk) return run(() => store.openClerkSignIn());
   const m = openModal(`<form class="editor" novalidate>
     <h2>128BIT ACCOUNT</h2>
     <p class="mtext">One account for every 128bit app (same as 128bit Play and Tracker). Your calendars, events and tasks sync to every device you sign in on.</p>
@@ -340,12 +346,12 @@ export function openAccounts(openSettingsFn) {
       <div class="acct"><span class="ph local">&#9635;</span><div>
         <b>${u ? esc(u.email) : 'NOT SIGNED IN'}</b>
         <small class="${u ? 'ok' : 'warn'}">${u ? '128BIT ACCOUNT · SYNCS EVERYWHERE' : 'EVERYTHING IS ONLY ON THIS DEVICE'}</small></div>
-        <div class="aact">${u ? '<button class="btn" data-act="out">SIGN OUT</button>' : '<button class="btn primary" data-act="in">SIGN IN</button>'}</div>
+        <div class="aact">${u ? `${store.usesClerk ? '<button class="btn" data-act="profile">MANAGE ACCOUNT</button>' : ''}<button class="btn" data-act="out">SIGN OUT</button>` : '<button class="btn primary" data-act="in">SIGN IN</button>'}</div>
       </div>
       <h3 class="sub">GOOGLE (FEEDING IN)</h3>
       ${gs.map(a => `<div class="acct">
         ${a.picture ? `<img src="${esc(a.picture)}" alt="" referrerpolicy="no-referrer">` : '<span class="ph">G</span>'}
-        <div><b>${esc(a.email)}</b><small class="${a.expired ? 'warn' : 'ok'}">${a.expired ? 'SIGNED OUT · RECONNECT TO KEEP SYNCING' : esc(a.status || 'CONNECTED')}${a.tasksOk === false ? ' · NO TASKS ACCESS' : ''}</small></div>
+        <div><b>${esc(a.email)}</b><small class="${a.expired ? 'warn' : 'ok'}">${a.expired ? 'SIGNED OUT · RECONNECT TO KEEP SYNCING' : esc(a.status || 'CONNECTED')}${a.tasksOk === false ? ' · NO TASKS ACCESS' : ''}${a.server ? ' · THE SERVER SYNCS IT FOR ALL YOUR DEVICES' : ''}</small></div>
         <div class="aact">${a.expired || a.tasksOk === false ? `<button class="btn primary" data-re="${esc(a.email)}">RECONNECT</button>` : `<button class="btn" data-sync="${esc(a.email)}"${a.syncing ? ' disabled' : ''}>SYNC NOW</button>`}<button class="btn" data-out="${esc(a.email)}">REMOVE</button></div>
       </div>`).join('') || `<p class="none">${u ? 'connect google to copy in your calendars + tasks. it keeps feeding in new invites until you remove it.' : 'sign in first, then connect google to bring everything over.'}</p>`}
     </div>
@@ -365,6 +371,7 @@ export function openAccounts(openSettingsFn) {
       if (how && await run(() => store.disconnectGoogle(email, how === 'drop'), 'GOOGLE REMOVED')) reopen();
     }
     if (t.dataset.act === 'in') { closeModal(m); openSignIn(); }
+    if (t.dataset.act === 'profile') { closeModal(m); run(() => store.openProfile()); }
     if (t.dataset.act === 'out' && await choose('SIGN OUT?', 'Your calendar stays in your 128bit account. This device goes back to its own calendar.', [{ label: 'SIGN OUT', value: 1, danger: true }])) {
       await run(() => store.signOut(), 'SIGNED OUT'); closeModal(m);
     }
@@ -429,12 +436,12 @@ export function openSettings() {
     <label class="check"><input type="checkbox" name="showTasks"${s.showTasks ? ' checked' : ''}><span></span>SHOW TASKS ON THE CALENDAR</label>
     ${N.isNative ? `<label class="check"><input type="checkbox" name="deviceReminders"${s.deviceReminders !== false ? ' checked' : ''}><span></span>REMINDERS ON THIS ${N.platform === 'android' ? 'PHONE' : 'COMPUTER'}</label>
     ${N.platform === 'desktop' ? `<label class="check"><input type="checkbox" name="autoStart"><span></span>START WITH WINDOWS (IN THE TRAY)</label>
-    <label class="field"><span>GOOGLE DESKTOP CLIENT ID</span><input name="desktopClientId" placeholder="xxxx.apps.googleusercontent.com" value="${esc(s.desktopClientId || '')}"></label>
-    <label class="field"><span>GOOGLE DESKTOP CLIENT SECRET</span><input name="desktopClientSecret" placeholder="GOCSPX-…" value="${esc(s.desktopClientSecret || '')}"></label>` : ''}` : `
+    ${store.usesClerk ? '' : `<label class="field"><span>GOOGLE DESKTOP CLIENT ID</span><input name="desktopClientId" placeholder="xxxx.apps.googleusercontent.com" value="${esc(s.desktopClientId || '')}"></label>
+    <label class="field"><span>GOOGLE DESKTOP CLIENT SECRET</span><input name="desktopClientSecret" placeholder="GOCSPX-…" value="${esc(s.desktopClientSecret || '')}"></label>`}` : ''}` : `
     <label class="check"><input type="checkbox" name="push"${s.push ? ' checked' : ''}${pushOk && store.cloud ? '' : ' disabled'}><span></span>PUSH REMINDERS ON THIS DEVICE (EVEN WHEN CLOSED)</label>
     ${!store.cloud ? '<p class="mtext">Sign in to get push reminders.</p>' : !pushOk ? '<p class="mtext">This browser can\'t do push. On iPhone: Share → Add to Home Screen, then open Bitcalendar from there.</p>' : ''}
     <label class="check"><input type="checkbox" name="notify"${s.notify ? ' checked' : ''}><span></span>POP-UP REMINDERS WHILE THE APP IS OPEN</label>
-    <label class="field"><span>GOOGLE CLIENT ID (FOR IMPORT)</span><input name="clientId" placeholder="${esc(window.BITCAL_CONFIG?.googleClientId || 'xxxx.apps.googleusercontent.com')}" value="${esc(s.clientId)}"></label>`}
+    ${store.usesClerk ? '' : `<label class="field"><span>GOOGLE CLIENT ID (FOR IMPORT)</span><input name="clientId" placeholder="${esc(window.BITCAL_CONFIG?.googleClientId || 'xxxx.apps.googleusercontent.com')}" value="${esc(s.clientId)}"></label>`}`}
     <div class="mbtns">
       ${store.cloud ? '' : '<button type="button" class="btn danger" data-act="wipe">CLEAR DEVICE CALENDAR</button>'}
       <button type="submit" class="btn primary">SAVE</button>
@@ -469,7 +476,7 @@ export function openSettings() {
       showTasks: f.elements.showTasks.checked,
       ...(N.isNative
         ? { deviceReminders: f.elements.deviceReminders.checked, ...(f.elements.desktopClientId ? { desktopClientId: f.elements.desktopClientId.value.trim(), desktopClientSecret: f.elements.desktopClientSecret.value.trim() } : {}) }
-        : { notify: f.elements.notify.checked, clientId: f.elements.clientId.value.trim() }),
+        : { notify: f.elements.notify.checked, ...(f.elements.clientId ? { clientId: f.elements.clientId.value.trim() } : {}) }),
     });
     closeModal(m);
     toast('SAVED');

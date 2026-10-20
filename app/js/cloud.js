@@ -5,7 +5,51 @@ import { authRedirect } from './native.js';
 
 const cfg = window.BITCAL_CONFIG || {};
 export const configured = !!(cfg.supabaseUrl && cfg.supabaseKey);
-const sb = configured ? createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }) : null;
+
+// ---- Clerk (when config.js has clerkPublishableKey) ----
+// Clerk does the signing in; Supabase trusts Clerk's session token (Supabase → Authentication →
+// Third-party auth → Clerk), so each request carries it. Google comes through Clerk too: signing in
+// with Google (with Calendar + Tasks allowed) lets the bitcal-google function sync from the server.
+export const usesClerk = !!cfg.clerkPublishableKey;
+const CLERK_JS = '6.37.0', CLERK_UI = '1.38.1';
+export const GOOGLE_SCOPES = ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/tasks'];
+// The publishable key carries Clerk's frontend address: pk_test_<base64("host$")>.
+const clerkHost = usesClerk ? atob(cfg.clerkPublishableKey.split('_')[2] || '').replace(/\$$/, '') : '';
+const APPEARANCE = {
+  variables: {
+    colorPrimary: '#b388ff', colorBackground: '#1a1a2e', colorForeground: '#f5f5f5', colorText: '#f5f5f5',
+    colorMutedForeground: '#9e9e9e', colorTextSecondary: '#9e9e9e', colorInput: '#101024', colorInputBackground: '#101024',
+    colorInputForeground: '#f5f5f5', colorInputText: '#f5f5f5', colorDanger: '#ff5c7a',
+    fontFamily: "'Press Start 2P', monospace", fontSize: '11px', borderRadius: '6px',
+  },
+};
+const script = (src, attrs = {}) => new Promise((resolve, reject) => {
+  const el = document.createElement('script');
+  el.src = src;
+  el.async = true;
+  el.crossOrigin = 'anonymous';
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  el.onload = resolve;
+  el.onerror = () => reject(new Error('Could not reach Clerk'));
+  document.head.appendChild(el);
+});
+let clerkReady = null;
+export function clerk() {
+  return clerkReady ||= (async () => {
+    await script(`https://${clerkHost}/npm/@clerk/ui@${CLERK_UI}/dist/ui.browser.js`);
+    await script(`https://${clerkHost}/npm/@clerk/clerk-js@${CLERK_JS}/dist/clerk.browser.js`, { 'data-clerk-publishable-key': cfg.clerkPublishableKey });
+    await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor }, appearance: APPEARANCE });
+    return window.Clerk;
+  })().catch(e => { clerkReady = null; throw e; });
+}
+const clerkToken = async () => {
+  try { const c = await clerk(); return c.session ? await c.session.getToken() : null; } catch { return null; }
+};
+const asUser = u => u && { id: u.id, email: u.primaryEmailAddress?.emailAddress || u.emailAddresses?.[0]?.emailAddress || '' };
+
+const sb = !configured ? null : usesClerk
+  ? createClient(cfg.supabaseUrl, cfg.supabaseKey, { accessToken: clerkToken })
+  : createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 
 // PostgREST's answer when a table doesn't exist (supabase/bitcalendar.sql not run yet).
 export const isMissingDb = e => /schema cache|does not exist|PGRST205|42P01/i.test(String(e?.message || e));
@@ -18,10 +62,32 @@ const q = s => `"${s}"`;
 
 export async function user() {
   if (!sb) return null;
+  if (usesClerk) {
+    try {
+      const u = asUser((await clerk()).user);
+      try { localStorage.setItem('bitcal.clerk.user', JSON.stringify(u)); } catch {}
+      return u;
+    } catch {
+      // Offline (or Clerk unreachable): the last person signed in here, so saved calendars still show.
+      try { return JSON.parse(localStorage.getItem('bitcal.clerk.user')); } catch { return null; }
+    }
+  }
   const { data } = await sb.auth.getSession();
   return data.session?.user || null;
 }
-export function onAuth(fn) { sb?.auth.onAuthStateChange((event, session) => fn(event, session?.user || null)); }
+export function onAuth(fn) {
+  if (usesClerk) {
+    clerk().then(c => c.addListener(({ user: u }) => {
+      try { localStorage.setItem('bitcal.clerk.user', JSON.stringify(asUser(u) || null)); } catch {}
+      fn(u ? 'SIGNED_IN' : 'SIGNED_OUT', asUser(u));
+    })).catch(() => {});
+    return;
+  }
+  sb?.auth.onAuthStateChange((event, session) => fn(event, session?.user || null));
+}
+// Clerk's own sign-in (email, password or Google), in the app's colours.
+export async function openClerkSignIn() { (await clerk()).openSignIn({ appearance: APPEARANCE, fallbackRedirectUrl: location.href }); }
+export async function openClerkProfile() { (await clerk()).openUserProfile({ appearance: APPEARANCE, additionalOAuthScopes: { google: GOOGLE_SCOPES } }); }
 export async function signIn(email, password) { need(); return check(await sb.auth.signInWithPassword({ email, password })).user; }
 export async function signUp(email, password) {
   need();
@@ -42,7 +108,50 @@ export async function handleAuthLink(url) {
   if (p.get('access_token')) return check(await sb.auth.setSession({ access_token: p.get('access_token'), refresh_token: p.get('refresh_token') })).user;
   throw new Error('That sign-in link is missing its key, ask for a new one');
 }
-export async function signOut() { if (sb) await sb.auth.signOut(); }
+export async function signOut() {
+  if (usesClerk) { await (await clerk()).signOut(); return; }
+  if (sb) await sb.auth.signOut();
+}
+
+// ---- Google through Clerk (usesClerk) ----
+
+// The Google account linked in Clerk: {email, scopes}, or null.
+export async function googleLink() {
+  const ea = (await clerk()).user?.externalAccounts?.find(a => a.provider === 'google');
+  return ea ? { email: ea.emailAddress, scopes: String(ea.approvedScopes || '') } : null;
+}
+// Links Google (or asks again for Calendar + Tasks). Resolves 'ready', or the Google page to go to.
+export async function linkGoogle(redirectUrl) {
+  const u = (await clerk()).user;
+  if (!u) throw new Error('Sign in first');
+  const ea = u.externalAccounts.find(a => a.provider === 'google');
+  let res;
+  if (!ea) res = await u.createExternalAccount({ strategy: 'oauth_google', redirectUrl, additionalScopes: GOOGLE_SCOPES });
+  else if (!GOOGLE_SCOPES.every(sc => String(ea.approvedScopes || '').includes(sc))) res = await ea.reauthorize({ redirectUrl, additionalScopes: GOOGLE_SCOPES });
+  else return 'ready';
+  const url = res?.verification?.externalVerificationRedirectURL;
+  if (!url) throw new Error('Clerk didn\'t hand over a Google sign-in page');
+  return String(url.href || url);
+}
+export async function unlinkGoogle() {
+  const ea = (await clerk()).user?.externalAccounts?.find(a => a.provider === 'google');
+  if (ea) await ea.destroy();
+}
+// The server function that syncs Google with Clerk's token (supabase/functions/bitcal-google).
+export async function googleServer(action = 'sync', extra = {}) {
+  const token = await clerkToken();
+  if (!token) throw new Error('Sign in first');
+  const res = await fetch(`${cfg.supabaseUrl}/functions/v1/bitcal-google`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, apikey: cfg.supabaseKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...extra }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 404) throw new Error('The Google sync server isn\'t set up yet (README → Clerk → bitcal-google)');
+  if (!res.ok) throw new Error(body.error || `Server said ${res.status}`);
+  return body;
+}
+export const googleStatus = async () => check(await sb.from('bitcal_google').select('*').maybeSingle());
 
 // ---- calendars + task lists ----
 

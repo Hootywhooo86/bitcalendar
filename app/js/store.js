@@ -17,6 +17,8 @@ const LOCAL_ACC = { key: 'local', kind: 'local', name: 'ON THIS DEVICE', email: 
 const LOCAL_CAL = { key: 'local|local', account: 'local', id: 'local', name: 'ON THIS DEVICE', color: '#ff9f1c', writable: true, defaultReminder: 10 };
 const LOCAL_LIST = { key: 'local|quests', account: 'local', id: 'quests', title: 'MY QUESTS' };
 export const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+// The web app: where Google gets linked from the installed apps (Google won't sign in inside them).
+export const WEB_APP = 'https://hootywhooo86.github.io/bitcalendar/app/';
 const pad = n => String(n).padStart(2, '0');
 
 const listeners = new Set();
@@ -47,6 +49,9 @@ export const store = {
   notice(msg) { listeners.forEach(fn => fn(msg)); },
 
   get cloud() { return !!this.user; },
+  get usesClerk() { return C.usesClerk; },
+  openProfile() { return C.openClerkProfile(); },
+  openClerkSignIn() { return C.openClerkSignIn(); },
   clientId() { return this.settings.clientId || window.BITCAL_CONFIG?.googleClientId || ''; },
   // The Windows app's Google client (a "Desktop app" OAuth client), from Settings; desktop/config.json otherwise.
   desktopGoogle() { return this.settings.desktopClientId ? { googleClientId: this.settings.desktopClientId, googleClientSecret: this.settings.desktopClientSecret || '' } : null; },
@@ -98,7 +103,7 @@ export const store = {
   // ---- start up / sign in ----
 
   async init() {
-    for (const g of read(localStorage, 'bitcal.google', [])) {
+    for (const g of C.usesClerk ? [] : read(localStorage, 'bitcal.google', [])) {
       const t = read(sessionStorage, 'bitcal.tokens', {})[g.email];
       const valid = t && Date.now() < t.expiresAt - 60000;
       this.google.push({ ...g, ...(valid ? t : {}), expired: !valid });
@@ -114,6 +119,7 @@ export const store = {
   },
 
   useDevice() {
+    this.accountRun = null;
     this.unsubscribe?.();
     this.user = null;
     this.accounts = [LOCAL_ACC];
@@ -124,7 +130,16 @@ export const store = {
     this.emit();
   },
 
-  async useAccount(user) {
+  // Loads one signed-in account. Clerk reports the sign-in as soon as the app listens, and startup
+  // asks too, so the same account loading twice shares the one run (no doubled first-time setup).
+  useAccount(user) {
+    if (this.accountRun && this.accountRun.id === user.id) return this.accountRun.done;
+    const done = this.loadAccount(user);
+    this.accountRun = { id: user.id, done };
+    return done;
+  },
+
+  async loadAccount(user) {
     this.user = user;
     this.accounts = [{ key: 'cloud', kind: 'cloud', name: '128BIT ACCOUNT', email: user.email }];
     cache.clear();
@@ -221,6 +236,7 @@ export const store = {
   // ---- Google sources ----
 
   persistGoogle() {
+    if (C.usesClerk) return; // Clerk keeps the Google tokens; nothing to keep here
     write(localStorage, 'bitcal.google', this.google.map(({ email, name, picture }) => ({ email, name, picture })));
     write(sessionStorage, 'bitcal.tokens', Object.fromEntries(this.google.filter(g => g.token).map(g => [g.email, { token: g.token, expiresAt: g.expiresAt, scope: g.scope }])));
   },
@@ -229,6 +245,7 @@ export const store = {
   async connectGoogle(hint) {
     if (!this.cloud) throw new Error('Sign in to your 128bit account first, so there is somewhere to put it');
     if (this.dbMissing) throw new Error('Bitcalendar\'s database isn\'t set up yet, so there is nowhere to put Google\'s events. Tap HOW TO FIX on the banner.');
+    if (C.usesClerk) return this.connectGoogleClerk();
     const clientId = this.clientId();
     if (!clientId && !N.googleRefreshes) throw new Error('Add a Google client ID first');
     const g = N.googleRefreshes ? await G.withToken(await N.googleSignIn(hint, this.desktopGoogle())) : await G.signIn(clientId, hint);
@@ -238,6 +255,32 @@ export const store = {
     this.persistGoogle();
     this.emit();
     await this.syncGoogle(acc);
+    return acc;
+  },
+
+  // With Clerk: Google is linked to the Clerk account (asking for Calendar + Tasks), and the server
+  // syncs it from then on. Google won't sign in inside the installed apps, so they finish on the web.
+  async connectGoogleClerk() {
+    const back = `${WEB_APP}?connect=google`;
+    const next = await C.linkGoogle(N.isNative ? back : `${location.origin}${location.pathname}?connect=google`);
+    if (next !== 'ready') {
+      if (N.isNative) {
+        N.openExternal(back);
+        throw new Error('Finish connecting Google in the browser (sign in with the same account); it syncs here right after');
+      }
+      location.href = next; // off to Google; comes back with ?connect=google
+      return null;
+    }
+    await this.syncAllGoogle();
+    return this.google[0] || null;
+  },
+
+  // The server's Google sync for this Clerk account, shown as one Google account.
+  async serverGoogle() {
+    const link = await C.googleLink().catch(() => null);
+    if (!link) { this.google = []; return null; }
+    let acc = this.google[0];
+    if (!acc || acc.email !== link.email) this.google = [acc = { email: link.email, name: link.email, picture: '', server: true, expired: false }];
     return acc;
   },
 
@@ -251,6 +294,7 @@ export const store = {
 
   async syncGoogle(acc) {
     if (!this.cloud || acc.syncing) return;
+    if (acc.server) return this.syncGoogleServer(acc);
     await this.freshToken(acc);
     if (acc.expired) { this.emit(); return; }
     acc.syncing = true;
@@ -258,7 +302,7 @@ export const store = {
     this.emit();
     try {
       const rows = await C.listCalendars();
-      const n = await syncAccount(acc, rows, text => { acc.status = text; this.emit(); });
+      const n = await syncAccount(acc, rows, C, text => { acc.status = text; this.emit(); });
       acc.status = `SYNCED ${D.fmtTime(new Date(), this.settings.h24)}${n.events + n.tasks ? ` · ${n.events + n.tasks} CHANGES` : ''}`;
       acc.lastSync = Date.now();
       await this.loadCalendars();
@@ -273,7 +317,37 @@ export const store = {
     }
   },
 
-  syncAllGoogle() { return Promise.all(this.google.filter(g => N.googleRefreshes || !g.expired).map(g => this.syncGoogle(g))); },
+  async syncAllGoogle() {
+    if (C.usesClerk) {
+      if (!this.cloud || this.dbMissing) return;
+      const acc = await this.serverGoogle();
+      return acc && this.syncGoogleServer(acc);
+    }
+    return Promise.all(this.google.filter(g => N.googleRefreshes || !g.expired).map(g => this.syncGoogle(g)));
+  },
+
+  async syncGoogleServer(acc) {
+    if (acc.syncing) return;
+    acc.syncing = true;
+    acc.status = 'SYNCING...';
+    this.emit();
+    try {
+      const r = await C.googleServer('sync');
+      acc.status = r.status === 'SYNCED' ? `SYNCED ${D.fmtTime(new Date(), this.settings.h24)}${r.changes ? ` · ${r.changes} CHANGES` : ''}` : r.status;
+      acc.tasksOk = true;
+      if (r.status !== 'SYNCED' && r.error) this.notice(`Google: ${r.error}`);
+      acc.lastSync = Date.now();
+      await this.loadCalendars();
+      await this.loadTasks();
+      cache.clear();
+    } catch (e) {
+      acc.status = 'SYNC FAILED';
+      this.notice(`Google: ${e.message}`);
+    } finally {
+      acc.syncing = false;
+      this.emit();
+    }
+  },
 
   expireGoogle(acc) {
     acc.expired = true;
@@ -285,6 +359,7 @@ export const store = {
   // Stops syncing an account. Its calendars stay unless removeData.
   async disconnectGoogle(email, removeData) {
     const acc = this.googleAccount(email);
+    if (acc?.server) await C.unlinkGoogle();
     if (acc?.token && !N.googleRefreshes) G.revoke(acc.token);
     N.googleForget(email);
     this.google = this.google.filter(g => g.email !== email);
@@ -516,6 +591,15 @@ export const store = {
 
   // Answering an invite goes to Google (the organizer is there), then the copy here follows.
   async rsvp(ev, status) {
+    const attendeesFor = list => list.map(a => a.self ? { ...a, responseStatus: status } : a);
+    if (C.usesClerk) {
+      const attendees = attendeesFor(ev.attendees);
+      await C.googleServer('rsvp', { calendar: ev.ext.cal, event: ev.extId, attendees });
+      await C.updateEvent(ev.rowId, { attendees });
+      cache.clear();
+      this.emit();
+      return;
+    }
     const acc = this.googleAccount(ev.ext?.email);
     if (acc) await this.freshToken(acc);
     if (!acc || acc.expired) throw new Error(`Reconnect ${ev.ext?.email || 'Google'} to answer invites`);

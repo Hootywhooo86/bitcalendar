@@ -61,7 +61,7 @@ export function revoke(token) { try { google.accounts.oauth2.revoke(token, () =>
 
 async function api(acc, method, url, body) {
   if (!acc.token || Date.now() > acc.expiresAt - 30000) throw new AuthError('Google session expired');
-  const res = await fetch(url, {
+  const res = await (acc.fetch || fetch)(url, { // acc.fetch: the server's, so tests can stand in for Google
     method,
     headers: { Authorization: `Bearer ${acc.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
