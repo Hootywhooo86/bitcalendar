@@ -8,7 +8,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win --x64 --publish never"
+    "dist": "electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "43.7.7",
@@ -57,13 +57,8 @@
         {
           "target": "nsis",
           "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
@@ -77,9 +72,6 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Bitcalendar",
       "artifactName": "Bitcalendar-Setup-${version}.exe"
-    },
-    "portable": {
-      "artifactName": "Bitcalendar-${version}-portable.exe"
     },
     "publish": null
   },

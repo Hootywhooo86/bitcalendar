@@ -94,11 +94,11 @@ Electron, same app, plus:
 
 Google setup for the desktop app: Google Cloud → Credentials → **Create OAuth client ID → Desktop app** (same project as the web client, same Calendar + Tasks APIs and test users). Paste its client ID and secret into the app's **Settings** (or put them in `desktop/config.json` / the `GOOGLE_DESKTOP_CLIENT_*` secrets to build them in). Desktop-app secrets aren't secret by Google's design; they ship inside the app.
 
-Build: `cd desktop && npm ci && npm run dist` (on Windows; on Linux it needs Wine) → `desktop/dist/Bitcalendar-Setup-<version>.exe` (installer) and `Bitcalendar-<version>-portable.exe` (no install). Run from source: `npm start`. Unsigned, so Windows SmartScreen asks once: **More info → Run anyway**.
+Build: `cd desktop && npm ci && npm run dist` (on Windows; on Linux it needs Wine) → `desktop/dist/Bitcalendar-Setup-<version>.exe`: one installer for every 64-bit Windows 10/11 PC (Intel/AMD and ARM; it installs the right one). Run from source: `npm start`. Unsigned, so Windows SmartScreen asks once: **More info → Run anyway**.
 
 ## Builds (GitHub Actions)
 
-`.github/workflows/build-apps.yml` builds the APK (Linux runner) and the installer + portable exe (Windows runner) on every push; download them from the run's **Artifacts**. Push a tag like `v1.1.0` to publish them as a GitHub Release. Optional secrets: `BITCAL_KEYSTORE_BASE64`, `BITCAL_STORE_PASSWORD`, `BITCAL_KEY_ALIAS`, `BITCAL_KEY_PASSWORD` (signed release APK), `GOOGLE_DESKTOP_CLIENT_ID`, `GOOGLE_DESKTOP_CLIENT_SECRET`.
+`.github/workflows/build-apps.yml` builds the APK (Linux runner) and the Windows installer (Windows runner) on every push; download them from the run's **Artifacts**. Push a tag like `v1.1.0` to publish them as a GitHub Release. Optional secrets: `BITCAL_KEYSTORE_BASE64`, `BITCAL_STORE_PASSWORD`, `BITCAL_KEY_ALIAS`, `BITCAL_KEY_PASSWORD` (signed release APK), `GOOGLE_DESKTOP_CLIENT_ID`, `GOOGLE_DESKTOP_CLIENT_SECRET`.
 
 After changing library versions, run `npm run vendor` (rebundles `app/vendor/`). After changing the pixel art, `python3 scripts/icons.py` redraws every icon.
 
