@@ -1,7 +1,26 @@
 -- Bitcalendar's own storage in the 128bit Supabase project. Run once in Supabase → SQL Editor (safe to
--- run again), after family-feed.sql (the block every 128bit app shares: accounts, settings, the family feed).
--- Every row belongs to one 128bit account (account_sub(): the Clerk user ID, user_…); row-level
--- security keeps it that way.
+-- run again). Every row belongs to one 128bit account (account_sub(): the signed-in token's account, a
+-- Clerk user ID user_… or a pre-Clerk sign-in's id); row-level security keeps it that way.
+
+-- Who's signed in. Comes from family-feed.sql (the block every 128bit app shares); made here as well
+-- when that hasn't been run yet, the same way, so Bitcalendar works on its own.
+create table if not exists public.account_links (
+  old_id text primary key,
+  new_id text not null,
+  linked_at timestamptz not null default now()
+);
+alter table public.account_links enable row level security;
+do $$
+begin
+  if to_regprocedure('public.account_sub()') is null then
+    create function public.account_sub() returns text
+    language sql stable security definer set search_path = public as $f$
+      select coalesce((select l.new_id from account_links l where l.old_id = auth.jwt() ->> 'sub'), nullif(auth.jwt() ->> 'sub', ''))
+    $f$;
+    revoke all on function public.account_sub() from public, anon;
+    grant execute on function public.account_sub() to authenticated, service_role;
+  end if;
+end $$;
 
 -- Calendars (kind 'events') and task lists (kind 'tasks'). ext is set when mirrored from Google:
 -- {provider:'google', email, id, syncToken | lastSync}.

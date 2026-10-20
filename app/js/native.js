@@ -6,7 +6,13 @@ export const isNative = platform !== 'web';
 
 let lib;
 const cap = () => lib ||= import('../vendor/capacitor.js');
-const widget = async () => (await cap()).registerPlugin('BitcalWidget');
+// Our own plugins (widgets, Google). A Capacitor plugin answers every property, "then" too, so it must
+// never be what an async function returns (awaiting it hangs for good): call through here instead.
+const plugins = {};
+const plugin = async (name, method, opts) => {
+  const { registerPlugin } = await cap();
+  return (plugins[name] ||= registerPlugin(name))[method](opts);
+};
 
 // Where emailed sign-in links send people back to. The apps catch this scheme.
 export const AUTH_SCHEME = 'app.bit128.bitcalendar';
@@ -81,7 +87,7 @@ export function onCommand(fn) { if (platform === 'desktop') desk.onCommand(fn); 
 // Hands the home-screen widgets what to draw (Android).
 export async function updateWidget(snapshot) {
   if (platform !== 'android') return;
-  (await widget()).update({ data: JSON.stringify(snapshot) }).catch(() => {});
+  await plugin('BitcalWidget', 'update', { data: JSON.stringify(snapshot) }).catch(() => {});
 }
 
 export async function openExternal(url) {
@@ -93,18 +99,17 @@ export async function openExternal(url) {
 // Google: the web uses Google's popup. The apps sign in the way Google allows for apps — Android with
 // the phone's own account picker (GooglePlugin.java), Windows through the real browser — and both get
 // fresh tokens without asking again, so Google keeps syncing.
-const googlePlugin = async () => (await cap()).registerPlugin('BitcalGoogle');
 export const googleHere = true;
 export const googleRefreshes = platform !== 'web';
 // → {access_token, expires_in, scope}
 export async function googleSignIn(hint, creds) {
   if (platform === 'desktop') return desk.googleSignIn(hint, creds);
-  return (await googlePlugin()).authorize({ interactive: true, email: hint || '' });
+  return plugin('BitcalGoogle', 'authorize', { interactive: true, email: hint || '' });
 }
 // → same, or null when Google wants the person to sign in again
 export async function googleToken(email, creds) {
   if (platform === 'desktop') return desk.googleToken(email, creds);
-  try { return await (await googlePlugin()).authorize({ interactive: false, email }); } catch { return null; }
+  try { return await plugin('BitcalGoogle', 'authorize', { interactive: false, email }); } catch { return null; }
 }
 export const googleForget = email => desk?.googleForget(email);
 

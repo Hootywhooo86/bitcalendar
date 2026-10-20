@@ -1,6 +1,6 @@
 // Bitcalendar service worker: opens offline (app shell cached), shows push reminders,
 // and opens the event when one is tapped.
-const CACHE = 'bitcal-v5';
+const CACHE = 'bitcal-v6';
 const SHELL = [
   './', 'index.html', 'style.css', 'config.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png',
   'js/app.js', 'js/store.js', 'js/views.js', 'js/modals.js', 'js/dates.js', 'js/recur.js',

@@ -483,9 +483,9 @@ export function openSettings() {
   });
 }
 
-// The block every 128bit app shares (accounts, settings, the family feed), then Bitcalendar's tables.
+// Bitcalendar's tables (on their own: the shared 128bit block, family-feed.sql, isn't needed first).
 const SQL_BASE = 'https://raw.githubusercontent.com/Hootywhooo86/bitcalendar/ccr-0aaf725e-pi88ux/supabase/';
-const SQL_FILES = ['family-feed.sql', 'bitcalendar.sql'];
+const SQL_FILES = ['bitcalendar.sql'];
 const SQL_EDITOR = 'https://supabase.com/dashboard/project/wvflpwtaszpstmjpkrhu/sql/new';
 
 // The 128bit account works, but Bitcalendar's tables were never made (supabase/bitcalendar.sql).

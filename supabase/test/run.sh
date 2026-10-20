@@ -15,4 +15,12 @@ PSQL=(env PGOPTIONS='-c client_min_messages=warning' psql -h "$DIR" -p 54330 -U 
 "${PSQL[@]}" -c "set client_min_messages = error; create publication supabase_realtime;"
 for i in 1 2; do "${PSQL[@]}" -f supabase/family-feed.sql; "${PSQL[@]}" -f supabase/bitcalendar.sql; done   # safe to run twice
 "${PSQL[@]}" -o /dev/null -f supabase/test/bitcal.sql
+# Today's live database: the pre-Clerk 128bit SQL (legacy-uuid.sql), then only bitcalendar.sql.
+"${PSQL[@]}" -c "drop schema public cascade; create schema public; grant usage on schema public to anon, authenticated, service_role; delete from auth.users;"
+"${PSQL[@]}" -f supabase/test/legacy-uuid.sql
+for i in 1 2; do "${PSQL[@]}" -f supabase/bitcalendar.sql; done
+"${PSQL[@]}" -o /dev/null -f supabase/test/standalone.sql
+# Later, the shared block and Tracker's SQL on top (tracker.sql: a copy of 128bittracker's), then the checks again.
+"${PSQL[@]}" -f supabase/family-feed.sql; "${PSQL[@]}" -f supabase/test/tracker.sql; "${PSQL[@]}" -f supabase/bitcalendar.sql
+"${PSQL[@]}" -o /dev/null -f supabase/test/bitcal.sql
 echo "bitcalendar SQL: all checks passed"
