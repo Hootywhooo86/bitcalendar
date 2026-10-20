@@ -57,20 +57,46 @@ public class WidgetTest {
         assertNotNull(v.findViewById(R.id.widget_image));
     }
 
-    @Test public void monthDrawsAndTapsOpenTheDay() throws Exception {
+    // Like the web page: tap a day, the box below describes it; tap the box to open that day.
+    @Test public void tappingADayDescribesItBelow() throws Exception {
         Snapshot.save(c, sample());
         int id = widgets.createWidget(MonthWidget.class, R.layout.widget_month);
         View v = widgets.getViewFor(id);
         Bitmap b = bitmap(v);
         save(b, "month.png");
         assertTrue(b.getWidth() > 100 && b.getHeight() > 100);
-        // Square 10 of the grid → the day it shows.
-        Calendar first = MonthWidget.gridStart(firstOfMonth(), 0);
-        first.add(Calendar.DAY_OF_MONTH, 10);
-        v.findViewById(c.getResources().getIdentifier("c10", "id", c.getPackageName())).performClick();
+        Calendar tomorrow = plus(Calendar.getInstance(), 1);
+        int cell = (int) Math.round((noon(tomorrow) - noon(MonthWidget.gridStart(firstOfMonth(), 0))) / 86400000.0);
+        if (cell >= 0 && cell < 42) {
+            v.findViewById(c.getResources().getIdentifier("c" + cell, "id", c.getPackageName())).performClick();
+            deliverLastBroadcast();
+            assertEquals(Snapshot.ymd(tomorrow), MonthWidget.selected(Snapshot.prefs(c), id));
+            v = widgets.getViewFor(id);
+            save(bitmap(v), "month-picked.png");
+        }
+        v.findViewById(R.id.today_panel).performClick();
         Intent opened = shadowOf((Application) c).getNextStartedActivity();
-        assertNotNull("tapping a day opens the app", opened);
-        assertEquals("app.bit128.bitcalendar://open?day=" + Snapshot.ymd(first), opened.getDataString());
+        assertNotNull("tapping the box opens the app", opened);
+        assertEquals("app.bit128.bitcalendar://open?day=" + MonthWidget.selected(Snapshot.prefs(c), id), opened.getDataString());
+    }
+
+    @Test public void dayBoxDescribesEverything() throws Exception {
+        Snapshot.save(c, sample());
+        java.util.List<Snapshot.Item> items = Snapshot.load(c).on(Snapshot.ymd(Calendar.getInstance()));
+        assertEquals("Standup", items.get(0).title);
+        assertTrue(items.get(0).detail, items.get(0).detail.contains("Room 4") && items.get(0).detail.contains("bring notes"));
+        assertTrue(items.get(0).detail.contains("–"));
+    }
+
+    private void deliverLastBroadcast() {
+        java.util.List<Intent> sent = shadowOf((Application) c).getBroadcastIntents();
+        new MonthWidget().onReceive(c, sent.get(sent.size() - 1));
+    }
+
+    private static long noon(Calendar day) {
+        Calendar d = (Calendar) day.clone();
+        d.set(Calendar.HOUR_OF_DAY, 12); d.set(Calendar.MINUTE, 0); d.set(Calendar.SECOND, 0); d.set(Calendar.MILLISECOND, 0);
+        return d.getTimeInMillis();
     }
 
     // The landing page mock, on a home screen: TODAY box with what's on, dot on the 25th.
@@ -115,7 +141,7 @@ public class WidgetTest {
         int id = widgets.createWidget(MonthWidget.class, R.layout.widget_month);
         widgets.getViewFor(id).findViewById(R.id.hdr_next).performClick();
         shadowOf(android.os.Looper.getMainLooper()).idle();
-        new MonthWidget().onReceive(c, shadowOf((Application) c).getBroadcastIntents().get(shadowOf((Application) c).getBroadcastIntents().size() - 1));
+        deliverLastBroadcast();
         assertEquals(1, Snapshot.prefs(c).getInt("off_" + id, 0));
         save(bitmap(widgets.getViewFor(id)), "month-next.png");
     }
@@ -178,15 +204,23 @@ public class WidgetTest {
         Calendar today = Calendar.getInstance();
         today.set(Calendar.HOUR_OF_DAY, 0); today.set(Calendar.MINUTE, 0); today.set(Calendar.SECOND, 0); today.set(Calendar.MILLISECOND, 0);
         JSONArray ev = new JSONArray();
-        ev.put(event("Standup", now + 25 * 60_000L, now + 40 * 60_000L, false, "#46d6db"));
+        long soon = Math.min(now + 25 * 60_000L, endOfToday() - 20 * 60_000L);
+        ev.put(event("Standup", soon, soon + 15 * 60_000L, false, "#46d6db").put("l", "Room 4").put("n", "bring notes from Friday"));
         ev.put(event("Design review", now + (5 * 60 + 10) * 60_000L, now + 6 * 3600_000L, false, "#9fe1e7"));
         Calendar tm = (Calendar) today.clone(); tm.add(Calendar.DAY_OF_MONTH, 1);
         Calendar tm2 = (Calendar) tm.clone(); tm2.add(Calendar.DAY_OF_MONTH, 1);
         ev.put(event("Nana's birthday", tm.getTimeInMillis(), tm2.getTimeInMillis(), true, "#ff9f1c").put("d", Snapshot.ymd(tm)));
+        ev.put(event("Dentist", tm.getTimeInMillis() + 15 * 3600_000L, tm.getTimeInMillis() + 16 * 3600_000L, false, "#ff9f1c").put("l", "Main St Dental"));
         ev.put(event("Camping trip", tm.getTimeInMillis() + 3 * 86400000L, tm.getTimeInMillis() + 6 * 86400000L, true, "#f691b2")
             .put("d", Snapshot.ymd(plus(tm, 3))));
         return new JSONObject().put("v", 1).put("at", now).put("weekStart", 0).put("h24", false).put("events", ev)
             .put("tasks", new JSONArray().put(new JSONObject().put("t", "Pay rent").put("d", Snapshot.ymd(plus(today, 6))))).toString();
+    }
+
+    private static long endOfToday() {
+        Calendar d = Calendar.getInstance();
+        d.set(Calendar.HOUR_OF_DAY, 23); d.set(Calendar.MINUTE, 59); d.set(Calendar.SECOND, 0);
+        return d.getTimeInMillis();
     }
 
     private static Calendar plus(Calendar c, int days) { Calendar x = (Calendar) c.clone(); x.add(Calendar.DAY_OF_MONTH, days); return x; }

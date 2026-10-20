@@ -13,7 +13,11 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.os.Bundle;
 import android.text.Layout;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.StaticLayout;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.view.View;
@@ -24,16 +28,20 @@ import java.util.Set;
 import app.bit128.bitcalendar.R;
 
 /**
- * The month widget, as on the landing page: month grid, today lit up, a dot on busy days,
- * and the TODAY box underneath. Every square opens that day in the app; ◀ ▶ flip months.
+ * The month widget, as on the landing page: month grid, today lit up, a dot on busy days, and the
+ * day box underneath. Tapping a square picks that day and the box describes everything on it
+ * (time, title, place, notes); tapping the box opens that day in the app; ◀ ▶ flip months.
+ * The pick goes back to today after a while, like the page does when it reloads.
  * Drawn as one bitmap; widget_month.xml lays tap zones over it on the same grid, inside MX/MY margins:
- * header 2 units, weekday letters 1, each week 2 (4–6 weeks, as the month needs), TODAY 5.5.
+ * header 2 units, weekday letters 1, each week 2 (4–6 weeks, as the month needs), day box 7.
  */
 public class MonthWidget extends AppWidgetProvider {
     static final String ACTION_PREV = "app.bit128.bitcalendar.widget.PREV";
     static final String ACTION_NEXT = "app.bit128.bitcalendar.widget.NEXT";
+    static final String ACTION_SELECT = "app.bit128.bitcalendar.widget.SELECT";
+    static final String EXTRA_DAY = "day";
     private static final long OFFSET_KEEP_MS = 15 * 60_000L; // flipped months spring back to now after a while
-    static final float PANEL = 5.5f; // includes the 0.6-unit gap above the box
+    static final float PANEL = 7f; // includes the 0.6-unit gap above the box
     static final float MX = 0.07f, MY = 0.06f; // margins, as fractions of width / height
 
     @Override
@@ -49,13 +57,25 @@ public class MonthWidget extends AppWidgetProvider {
     public void onReceive(Context c, Intent intent) {
         super.onReceive(c, intent);
         String a = intent.getAction();
-        if (!ACTION_PREV.equals(a) && !ACTION_NEXT.equals(a)) return;
         int id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1);
         if (id < 0) return;
         SharedPreferences p = Snapshot.prefs(c);
+        if (ACTION_SELECT.equals(a)) {
+            p.edit().putString("sel_" + id, intent.getStringExtra(EXTRA_DAY)).putLong("sel_at_" + id, System.currentTimeMillis()).apply();
+            render(c, AppWidgetManager.getInstance(c), id);
+            return;
+        }
+        if (!ACTION_PREV.equals(a) && !ACTION_NEXT.equals(a)) return;
         int off = offset(p, id) + (ACTION_NEXT.equals(a) ? 1 : -1);
         p.edit().putInt("off_" + id, off).putLong("off_at_" + id, System.currentTimeMillis()).apply();
         render(c, AppWidgetManager.getInstance(c), id);
+    }
+
+    /** The picked day (YYYY-MM-DD), or today once the pick is old. */
+    static String selected(SharedPreferences p, int id) {
+        String sel = p.getString("sel_" + id, null);
+        if (sel == null || System.currentTimeMillis() - p.getLong("sel_at_" + id, 0) > OFFSET_KEEP_MS) return Snapshot.ymd(Calendar.getInstance());
+        return sel;
     }
 
     private static int offset(SharedPreferences p, int id) {
@@ -70,10 +90,11 @@ public class MonthWidget extends AppWidgetProvider {
         month.add(Calendar.MONTH, offset(Snapshot.prefs(c), id));
         Calendar first = gridStart(month, s.weekStart);
         int rows = weeks(month, first);
-        int[] size = Widgets.sizePx(c, m, id, 250, 320);
+        String sel = selected(Snapshot.prefs(c), id);
+        int[] size = Widgets.sizePx(c, m, id, 250, 350);
 
         RemoteViews rv = new RemoteViews(c.getPackageName(), R.layout.widget_month);
-        rv.setImageViewBitmap(R.id.widget_image, draw(c, s, month, first, rows, size[0], size[1]));
+        rv.setImageViewBitmap(R.id.widget_image, draw(c, s, month, first, rows, sel, size[0], size[1]));
         for (int r = 4; r < 6; r++) {
             int rowId = c.getResources().getIdentifier("r" + r, "id", c.getPackageName());
             rv.setViewVisibility(rowId, r < rows ? View.VISIBLE : View.GONE);
@@ -81,14 +102,20 @@ public class MonthWidget extends AppWidgetProvider {
         Calendar d = (Calendar) first.clone();
         for (int i = 0; i < 42; i++) {
             int cellId = c.getResources().getIdentifier("c" + i, "id", c.getPackageName());
-            rv.setOnClickPendingIntent(cellId, Widgets.openDay(c, id * 64 + i, Snapshot.ymd(d)));
+            rv.setOnClickPendingIntent(cellId, select(c, id, Snapshot.ymd(d), i));
             d.add(Calendar.DAY_OF_MONTH, 1);
         }
         rv.setOnClickPendingIntent(R.id.hdr_title, Widgets.openDay(c, id * 64 + 50, null));
-        rv.setOnClickPendingIntent(R.id.today_panel, Widgets.openDay(c, id * 64 + 53, Snapshot.ymd(Calendar.getInstance())));
+        rv.setOnClickPendingIntent(R.id.today_panel, Widgets.openDay(c, id * 64 + 53, sel));
         rv.setOnClickPendingIntent(R.id.hdr_prev, nav(c, id, ACTION_PREV, 51));
         rv.setOnClickPendingIntent(R.id.hdr_next, nav(c, id, ACTION_NEXT, 52));
         m.updateAppWidget(id, rv);
+    }
+
+    private static PendingIntent select(Context c, int id, String day, int code) {
+        Intent i = new Intent(c, MonthWidget.class).setAction(ACTION_SELECT)
+            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id).putExtra(EXTRA_DAY, day);
+        return PendingIntent.getBroadcast(c, id * 64 + code, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     private static PendingIntent nav(Context c, int id, String action, int code) {
@@ -118,7 +145,7 @@ public class MonthWidget extends AppWidgetProvider {
         return d.getTimeInMillis();
     }
 
-    static Bitmap draw(Context c, Snapshot s, Calendar month, Calendar first, int rows, int w, int h) {
+    static Bitmap draw(Context c, Snapshot s, Calendar month, Calendar first, int rows, String sel, int w, int h) {
         Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(b);
         Pixel.frame(cv, w, h, Math.max(3f, w * 0.018f));
@@ -157,6 +184,14 @@ public class MonthWidget extends AppWidgetProvider {
                 cell.setAlpha(other ? 64 : 255);
                 cv.drawRoundRect(r, rad, rad, cell);
             }
+            if (key.equals(sel) && !isToday) {
+                // A picked day: orange outline (today is already lit up, as on the landing page).
+                Paint ring = Pixel.fill(Pixel.ORANGE);
+                ring.setStyle(Paint.Style.STROKE);
+                ring.setStrokeWidth(Math.max(2f, side * 0.07f));
+                float in = ring.getStrokeWidth() / 2f;
+                cv.drawRoundRect(new RectF(r.left + in, r.top + in, r.right - in, r.bottom - in), rad, rad, ring);
+            }
             boolean dot = busy.contains(key);
             np.setColor(isToday ? Pixel.BG : Pixel.SOFT);
             np.setAlpha(other && !isToday ? 64 : 255);
@@ -168,23 +203,31 @@ public class MonthWidget extends AppWidgetProvider {
             }
             d.add(Calendar.DAY_OF_MONTH, 1);
         }
-        todayBox(c, cv, s, px, py + u * (3 + rows * 2 + 0.6f), cw, u * (PANEL - 0.6f), u, col);
+        dayBox(c, cv, s, sel, px, py + u * (3 + rows * 2 + 0.6f), cw, u * (PANEL - 0.6f), u, col);
         return b;
     }
 
-    /** The TODAY box: dark inset panel, orange title, "+ thing" lines that wrap like the mock. */
-    private static void todayBox(Context c, Canvas cv, Snapshot s, float x, float y, float w, float h, float u, float col) {
+    /** The day box: dark inset panel, orange "TODAY" / "OCTOBER 21", then "+ 9A Thing" lines with a dim line of details. */
+    private static void dayBox(Context c, Canvas cv, Snapshot s, String day, float x, float y, float w, float h, float u, float col) {
         float bw = Math.max(2f, col * 0.06f), rad = col * 0.12f;
         cv.drawRoundRect(new RectF(x, y, x + w, y + h), rad, rad, Pixel.fill(Pixel.LINE));
         cv.drawRoundRect(new RectF(x + bw, y + bw, x + w - bw, y + h - bw), rad * 0.7f, rad * 0.7f, Pixel.fill(Pixel.DEEP));
         float pad = col * 0.32f, size = Math.min(u * 0.52f, col * 0.27f);
         TextPaint title = Pixel.text(c, size, Pixel.ORANGE);
-        Pixel.line(cv, "TODAY", x + pad, y + pad, w - pad * 2, title);
+        String[] p = day.split("-");
+        boolean isToday = day.equals(Snapshot.ymd(Calendar.getInstance()));
+        Pixel.line(cv, isToday ? "TODAY" : Pixel.MONTHS[Integer.parseInt(p[1]) - 1] + " " + Integer.parseInt(p[2]), x + pad, y + pad, w - pad * 2, title);
         float top = y + pad + (title.descent() - title.ascent()) * 1.7f, avail = y + h - pad * 0.8f - top;
-        List<String> items = s.today();
+        List<Snapshot.Item> items = s.on(day);
         TextPaint tp = Pixel.text(c, size, items.isEmpty() ? Pixel.MUTE : Pixel.SOFT);
-        StringBuilder text = new StringBuilder();
-        for (String t : items) text.append(text.length() > 0 ? "\n" : "").append("+ ").append(t);
+        SpannableStringBuilder text = new SpannableStringBuilder();
+        for (Snapshot.Item it : items) {
+            if (text.length() > 0) text.append("\n");
+            text.append(it.task ? "□ " : "+ ");
+            if (!it.time.isEmpty()) span(text, it.time + " ", Pixel.PURPLE, 1f);
+            text.append(it.title);
+            if (!it.detail.isEmpty()) { text.append("\n"); span(text, "  " + it.detail, Pixel.DIM, 0.8f); }
+        }
         if (items.isEmpty()) text.append(s.empty ? "open bitcalendar to sync..." : "no quests scheduled...");
         float lineH = (tp.descent() - tp.ascent()) * 1.45f;
         int maxLines = Math.max(1, (int) Math.floor(avail / lineH));
@@ -195,6 +238,13 @@ public class MonthWidget extends AppWidgetProvider {
         cv.translate(x + pad, top);
         layout.draw(cv);
         cv.restore();
+    }
+
+    private static void span(SpannableStringBuilder b, String s, int color, float size) {
+        int from = b.length();
+        b.append(s);
+        b.setSpan(new ForegroundColorSpan(color), from, b.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if (size != 1f) b.setSpan(new RelativeSizeSpan(size), from, b.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
     /** A ◀ / ▶ button like the landing mock's: dark square, darker lip underneath. */

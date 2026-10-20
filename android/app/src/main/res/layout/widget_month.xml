@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Tap zones laid over MonthWidget.draw()'s bitmap on the same grid: keep the weights in step with it
-     (margins 7% left/right, 6% top/bottom; then header 2, weekday letters 1, weeks x 2, TODAY panel 5.5).
+     (margins 7% left/right, 6% top/bottom; then header 2, weekday letters 1, weeks x 2, day box 7).
      Only view classes widgets allow (FrameLayout, LinearLayout, ImageView…): a plain View is "Can't load widget". -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
@@ -79,7 +79,7 @@
                 <FrameLayout android:id="@+id/c40" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
                 <FrameLayout android:id="@+id/c41" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
             </LinearLayout>
-            <FrameLayout android:id="@+id/today_panel" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="5.5" />
+            <FrameLayout android:id="@+id/today_panel" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="7" />
         </LinearLayout>
         <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="7" />
         </LinearLayout>

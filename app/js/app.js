@@ -167,6 +167,8 @@ async function load() {
 // ---- the installed apps: reminders on the device + the home-screen widget ----
 
 let deviceTimer;
+// Notes as one plain line (Google's can be HTML).
+const plain = html => html ? new DOMParser().parseFromString(String(html).replace(/<br\s*\/?>/gi, ' '), 'text/html').body.textContent.replace(/\s+/g, ' ').trim() : '';
 function syncDevice() {
   if (!N.isNative) return;
   clearTimeout(deviceTimer);
@@ -186,7 +188,7 @@ function syncDevice() {
     N.scheduleReminders(store.settings.deviceReminders === false ? [] : soon).catch(err => console.warn('reminders', err));
     N.updateWidget({
       v: 1, at: Date.now(), weekStart: store.settings.weekStart, h24,
-      events: store.eventsBetween(from, to).slice(0, 600).map(e => ({ t: e.title, s: +e.start, e: +e.end, a: e.allDay ? 1 : 0, c: e.color, d: D.ymd(e.start) })),
+      events: store.eventsBetween(from, to).slice(0, 600).map(e => ({ t: e.title, s: +e.start, e: +e.end, a: e.allDay ? 1 : 0, c: e.color, d: D.ymd(e.start), l: e.location || '', n: plain(e.description).slice(0, 140) })),
       tasks: store.visibleTasks().filter(t => t.due && !t.completed).slice(0, 200).map(t => ({ t: t.title, d: D.ymd(t.due) })),
     });
   }, 1500);

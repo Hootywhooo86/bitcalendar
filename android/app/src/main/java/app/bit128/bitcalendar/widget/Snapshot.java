@@ -18,6 +18,7 @@ public final class Snapshot {
 
     public static final class Event {
         public String title; public long start, end; public boolean allDay; public int color; public String day;
+        public String location = "", notes = "";
     }
 
     public final List<Event> events = new ArrayList<>();
@@ -48,6 +49,8 @@ public final class Snapshot {
                 e.end = j.optLong("e");
                 e.allDay = j.optInt("a", 0) == 1;
                 e.day = j.optString("d", "");
+                e.location = j.optString("l", "");
+                e.notes = j.optString("n", "");
                 try { e.color = Color.parseColor(j.optString("c", "#ff9f1c")); } catch (IllegalArgumentException x) { e.color = Pixel.ORANGE; }
                 s.events.add(e);
             }
@@ -66,23 +69,53 @@ public final class Snapshot {
         return String.format(Locale.US, "%04d-%02d-%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
     }
 
-    /** What's on today, like the landing mock's TODAY box: events (all-day first, then by time), then tasks due. */
-    public List<String> today() {
+    /** One line in the widget's day box. time is "" for all-day things and tasks. */
+    public static final class Item {
+        public final String time, title, detail; public final boolean task;
+        Item(String time, String title, String detail, boolean task) { this.time = time; this.title = title; this.detail = detail; this.task = task; }
+    }
+
+    /** Everything on a day (YYYY-MM-DD), like the landing mock's box: events (all-day first, then by time), then tasks due. */
+    public List<Item> on(String day) {
+        String[] p = day.split("-");
         Calendar d = Calendar.getInstance();
-        d.set(Calendar.HOUR_OF_DAY, 0); d.set(Calendar.MINUTE, 0); d.set(Calendar.SECOND, 0); d.set(Calendar.MILLISECOND, 0);
+        d.clear();
+        d.set(Integer.parseInt(p[0]), Integer.parseInt(p[1]) - 1, Integer.parseInt(p[2]));
         long start = d.getTimeInMillis();
         d.add(Calendar.DAY_OF_MONTH, 1);
         long end = d.getTimeInMillis();
-        String key = ymd(Calendar.getInstance());
-        List<Event> on = new ArrayList<>();
+        List<Event> hits = new ArrayList<>();
         for (Event e : events) {
-            if (e.allDay ? e.start < end && e.end > start : e.start < end && (e.end > start || e.start >= start)) on.add(e);
+            if (e.allDay ? e.start < end && e.end > start : e.start < end && (e.end > start || e.start >= start)) hits.add(e);
         }
-        on.sort((a, b) -> a.allDay != b.allDay ? (a.allDay ? -1 : 1) : Long.compare(a.start, b.start));
-        List<String> out = new ArrayList<>();
-        for (Event e : on) out.add(e.title);
-        for (String[] t : tasks) if (key.equals(t[1])) out.add(t[0]);
+        hits.sort((a, b) -> a.allDay != b.allDay ? (a.allDay ? -1 : 1) : Long.compare(a.start, b.start));
+        List<Item> out = new ArrayList<>();
+        for (Event e : hits) {
+            String time = e.allDay ? "" : e.start < start ? "…" : clock(e.start);
+            StringBuilder detail = new StringBuilder();
+            if (!e.allDay && e.start >= start) detail.append(clock(e.start)).append("–").append(clock(e.end));
+            if (!e.location.isEmpty()) detail.append(detail.length() > 0 ? " · " : "").append(e.location);
+            if (!e.notes.isEmpty()) detail.append(detail.length() > 0 ? " · " : "").append(e.notes);
+            out.add(new Item(time, e.title, detail.toString(), false));
+        }
+        for (String[] t : tasks) if (day.equals(t[1])) out.add(new Item("", t[0], "", true));
         return out;
+    }
+
+    /** Titles of what's on today. */
+    public List<String> today() {
+        List<String> out = new ArrayList<>();
+        for (Item i : on(ymd(Calendar.getInstance()))) out.add(i.title);
+        return out;
+    }
+
+    /** "9:30A" / "9A" (or "09:30" on a 24-hour clock), like the app. */
+    String clock(long ms) {
+        Calendar d = Calendar.getInstance();
+        d.setTimeInMillis(ms);
+        int h = d.get(Calendar.HOUR_OF_DAY), mi = d.get(Calendar.MINUTE);
+        if (h24) return String.format(Locale.US, "%02d:%02d", h, mi);
+        return (h % 12 == 0 ? 12 : h % 12) + (mi > 0 ? String.format(Locale.US, ":%02d", mi) : "") + (h < 12 ? "A" : "P");
     }
 
     /** Every day (YYYY-MM-DD) that has something on it. */
