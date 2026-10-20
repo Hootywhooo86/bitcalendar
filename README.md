@@ -86,7 +86,7 @@ Capacitor 8 wrapping `app/` (`app.bit128.bitcalendar`, Android 7+). Everything t
 - Emailed sign-in links open the app (`app.bit128.bitcalendar://auth`). Add that to Supabase → Authentication → Redirect URLs.
 - Google is connected from the Windows app or the web (Google doesn't allow sign-in inside apps); once it's in your account, it shows on the phone too.
 
-- **Google on the phone:** CONNECT GOOGLE uses Android's own Google account picker (Google blocks sign-in inside app web views), and fresh tokens come silently after that. Google recognizes the app by package name + signing key, so the Google Cloud project needs an **Android** OAuth client: package `app.bit128.bitcalendar`, SHA-1 `19:63:CB:2A:0E:B6:5E:36:91:33:30:31:77:F9:F2:EF:4F:A6:FF:17`.
+- **Google on the phone:** CONNECT GOOGLE uses Android's own Google account picker (Google blocks sign-in inside app web views), and fresh tokens come silently after that. Google recognizes the app by package name + signing key, so the Google Cloud project needs an **Android** OAuth client: package `app.bit128.bitcalendar`, SHA-1 `19:63:CB:2A:0E:B6:5E:36:91:33:30:31:77:F9:F2:EF:4F:A6:FF:17`. Made in the "My First Project" Google Cloud project: client `1012359882272-rd0j38ktfeaqndb45j808og34qa5cua8.apps.googleusercontent.com` (nothing in the app refers to it; Google matches the package and key). That project's Data access needs the Calendar and Tasks scopes, and while it's in Testing, everyone who signs in must be a test user.
 - **Updates:** when a newer release is on GitHub, the app shows "BITCALENDAR x.y.z IS OUT · UPDATE"; it downloads the APK and Android installs it over the old one.
 
 ### Updates and the signing key
