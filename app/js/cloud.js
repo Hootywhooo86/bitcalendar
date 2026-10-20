@@ -7,6 +7,9 @@ const cfg = window.BITCAL_CONFIG || {};
 export const configured = !!(cfg.supabaseUrl && cfg.supabaseKey);
 const sb = configured ? createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }) : null;
 
+// PostgREST's answer when a table doesn't exist (supabase/bitcalendar.sql not run yet).
+export const isMissingDb = e => /schema cache|does not exist|PGRST205|42P01/i.test(String(e?.message || e));
+
 const need = () => { if (!sb) throw new Error('128bit account isn\'t set up in config.js'); };
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 const q = s => `"${s}"`;

@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(BitcalWidgetPlugin.class);
+        registerPlugin(GooglePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

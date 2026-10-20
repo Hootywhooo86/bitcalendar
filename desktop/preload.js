@@ -5,10 +5,11 @@ const listen = (channel, fn) => ipcRenderer.on(channel, (_e, payload) => fn(payl
 
 contextBridge.exposeInMainWorld('bitcalDesktop', {
   version: process.versions.electron,
+  appVersion: () => ipcRenderer.invoke('app-version'),
   scheduleReminders: list => ipcRenderer.invoke('reminders', list),
   openExternal: url => ipcRenderer.invoke('open-external', url),
-  googleSignIn: hint => ipcRenderer.invoke('google-sign-in', hint),
-  googleToken: email => ipcRenderer.invoke('google-token', email),
+  googleSignIn: (hint, creds) => ipcRenderer.invoke('google-sign-in', hint, creds),
+  googleToken: (email, creds) => ipcRenderer.invoke('google-token', email, creds),
   googleForget: email => ipcRenderer.invoke('google-forget', email),
   getAutoStart: () => ipcRenderer.invoke('get-auto-start'),
   setAutoStart: on => ipcRenderer.invoke('set-auto-start', on),

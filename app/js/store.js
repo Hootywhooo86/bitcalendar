@@ -48,6 +48,8 @@ export const store = {
 
   get cloud() { return !!this.user; },
   clientId() { return this.settings.clientId || window.BITCAL_CONFIG?.googleClientId || ''; },
+  // The Windows app's Google client (a "Desktop app" OAuth client), from Settings; desktop/config.json otherwise.
+  desktopGoogle() { return this.settings.desktopClientId ? { googleClientId: this.settings.desktopClientId, googleClientSecret: this.settings.desktopClientSecret || '' } : null; },
   setSettings(patch) {
     Object.assign(this.settings, patch);
     write(localStorage, 'bitcal.settings', this.settings);
@@ -166,9 +168,12 @@ export const store = {
       rows = await C.listCalendars();
       write(localStorage, 'bitcal.offline.cals', rows);
       this.offline = false;
+      this.dbMissing = false;
     } catch (e) {
       rows = read(localStorage, 'bitcal.offline.cals', []);
-      this.offline = true;
+      // Reached the server, but Bitcalendar's tables aren't there: supabase/bitcalendar.sql hasn't been run.
+      if (C.isMissingDb(e)) { this.dbMissing = true; this.offline = false; }
+      else this.offline = true;
     }
     const events = rows.filter(r => r.kind === 'events'), lists = rows.filter(r => r.kind === 'tasks');
     this.calendars = events.map(r => ({
@@ -180,7 +185,7 @@ export const store = {
 
   // Every account gets a calendar and a task list of its own, apart from anything copied from Google.
   async ensureDefaults() {
-    if (this.offline) return;
+    if (this.offline || this.dbMissing) return;
     let made = false;
     if (!this.calendars.some(c => !c.ext)) { await C.insertCalendar({ kind: 'events', name: 'MY CALENDAR', color: '#ff9f1c', default_reminder: 10 }); made = true; }
     if (!this.taskLists.some(l => !l.ext)) { await C.insertCalendar({ kind: 'tasks', name: 'MY QUESTS', color: '#b388ff' }); made = true; }
@@ -190,7 +195,7 @@ export const store = {
   // Whatever was added on this device before signing in moves into the account.
   async moveDeviceData() {
     const { events, tasks } = L.ownData();
-    if (this.offline || (!events.length && !tasks.length)) return;
+    if (this.offline || this.dbMissing || (!events.length && !tasks.length)) return;
     const cal = this.calendars.find(c => !c.ext), list = this.taskLists.find(l => !l.ext);
     for (const e of events) {
       const start = new Date(e.start), end = new Date(e.end);
@@ -223,9 +228,10 @@ export const store = {
   // Sign in to Google (a popup; call from a click), then copy everything in.
   async connectGoogle(hint) {
     if (!this.cloud) throw new Error('Sign in to your 128bit account first, so there is somewhere to put it');
+    if (this.dbMissing) throw new Error('Bitcalendar\'s database isn\'t set up yet, so there is nowhere to put Google\'s events. Tap HOW TO FIX on the banner.');
     const clientId = this.clientId();
     if (!clientId && !N.googleRefreshes) throw new Error('Add a Google client ID first');
-    const g = N.googleRefreshes ? await G.withToken(await N.googleSignIn(hint)) : await G.signIn(clientId, hint);
+    const g = N.googleRefreshes ? await G.withToken(await N.googleSignIn(hint, this.desktopGoogle())) : await G.signIn(clientId, hint);
     let acc = this.googleAccount(g.email);
     if (acc) Object.assign(acc, g, { expired: false });
     else this.google.push(acc = { ...g, expired: false });
@@ -238,7 +244,7 @@ export const store = {
   // The desktop app keeps a refresh token, so it never has to ask again.
   async freshToken(acc) {
     if (!N.googleRefreshes || (acc.token && Date.now() < acc.expiresAt - 120000)) return;
-    const r = await N.googleToken(acc.email).catch(() => null);
+    const r = await N.googleToken(acc.email, this.desktopGoogle()).catch(() => null);
     if (r?.access_token) Object.assign(acc, { token: r.access_token, expiresAt: Date.now() + r.expires_in * 1000, scope: r.scope, expired: false });
     else this.expireGoogle(acc);
   },
@@ -354,6 +360,7 @@ export const store = {
       write(localStorage, OFFLINE, saved);
       if (this.offline) { this.offline = false; this.emit(); }
     } catch (e) {
+      if (C.isMissingDb(e)) { this.dbMissing = true; cache.set(k, []); return; }
       rows = read(localStorage, OFFLINE, {})[k];
       if (!rows) { this.notice(`couldn't load ${D.MONTHS[m.getMonth()]}: ${e.message}`); return; }
       if (!this.offline) { this.offline = true; this.notice('OFFLINE · SHOWING WHAT WAS SAVED ON THIS DEVICE'); }

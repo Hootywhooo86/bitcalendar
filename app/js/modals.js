@@ -273,15 +273,19 @@ export function openTaskEditor(task, preset = {}) {
 // ---- accounts / settings / setup ----
 
 export function connect(hint) {
-  if (!N.googleHere) return toast('Connect Google from the computer app or the web. Once it\'s in, it shows up here too.');
   if (!store.cloud) {
     toast('Sign in to your 128bit account first, then Google can pour in');
     return openSignIn();
   }
   if (!store.clientId() && !N.googleRefreshes) return openSetup();
   if (!N.googleRefreshes && !G.gisReady()) { G.loadGis().catch(() => {}); return toast('Google sign-in is still loading, tap again in a sec'); }
+  if (store.dbMissing) return openDbHelp();
   return run(async () => {
-    const acc = await store.connectGoogle(hint);
+    const acc = await store.connectGoogle(hint).catch(e => {
+      if (N.platform === 'desktop' && /isn't set up yet/.test(e.message)) { openDesktopGoogle(); return null; }
+      throw e;
+    });
+    if (!acc) return;
     toast(N.googleRefreshes ? `${acc.email} IS IN · KEEPS SYNCING IN THE BACKGROUND` : `${acc.email} IS IN · KEEPS SYNCING WHILE BITCALENDAR IS OPEN`);
   });
 }
@@ -424,7 +428,9 @@ export function openSettings() {
     <label class="field"><span>NEW EVENT LENGTH</span><select name="duration">${[15, 30, 45, 60, 90, 120].map(n => `<option value="${n}">${n} MIN</option>`).join('')}</select></label>
     <label class="check"><input type="checkbox" name="showTasks"${s.showTasks ? ' checked' : ''}><span></span>SHOW TASKS ON THE CALENDAR</label>
     ${N.isNative ? `<label class="check"><input type="checkbox" name="deviceReminders"${s.deviceReminders !== false ? ' checked' : ''}><span></span>REMINDERS ON THIS ${N.platform === 'android' ? 'PHONE' : 'COMPUTER'}</label>
-    ${N.platform === 'desktop' ? '<label class="check"><input type="checkbox" name="autoStart"><span></span>START WITH WINDOWS (IN THE TRAY)</label>' : ''}` : `
+    ${N.platform === 'desktop' ? `<label class="check"><input type="checkbox" name="autoStart"><span></span>START WITH WINDOWS (IN THE TRAY)</label>
+    <label class="field"><span>GOOGLE DESKTOP CLIENT ID</span><input name="desktopClientId" placeholder="xxxx.apps.googleusercontent.com" value="${esc(s.desktopClientId || '')}"></label>
+    <label class="field"><span>GOOGLE DESKTOP CLIENT SECRET</span><input name="desktopClientSecret" placeholder="GOCSPX-…" value="${esc(s.desktopClientSecret || '')}"></label>` : ''}` : `
     <label class="check"><input type="checkbox" name="push"${s.push ? ' checked' : ''}${pushOk && store.cloud ? '' : ' disabled'}><span></span>PUSH REMINDERS ON THIS DEVICE (EVEN WHEN CLOSED)</label>
     ${!store.cloud ? '<p class="mtext">Sign in to get push reminders.</p>' : !pushOk ? '<p class="mtext">This browser can\'t do push. On iPhone: Share → Add to Home Screen, then open Bitcalendar from there.</p>' : ''}
     <label class="check"><input type="checkbox" name="notify"${s.notify ? ' checked' : ''}><span></span>POP-UP REMINDERS WHILE THE APP IS OPEN</label>
@@ -462,11 +468,78 @@ export function openSettings() {
       weekStart: +f.elements.weekStart.value, h24: f.elements.h24.value === '1', duration: +f.elements.duration.value,
       showTasks: f.elements.showTasks.checked,
       ...(N.isNative
-        ? { deviceReminders: f.elements.deviceReminders.checked }
+        ? { deviceReminders: f.elements.deviceReminders.checked, ...(f.elements.desktopClientId ? { desktopClientId: f.elements.desktopClientId.value.trim(), desktopClientSecret: f.elements.desktopClientSecret.value.trim() } : {}) }
         : { notify: f.elements.notify.checked, clientId: f.elements.clientId.value.trim() }),
     });
     closeModal(m);
     toast('SAVED');
+  });
+}
+
+const SQL_URL = 'https://raw.githubusercontent.com/Hootywhooo86/bitcalendar/ccr-0aaf725e-pi88ux/supabase/bitcalendar.sql';
+const SQL_EDITOR = 'https://supabase.com/dashboard/project/wvflpwtaszpstmjpkrhu/sql/new';
+
+// The 128bit account works, but Bitcalendar's tables were never made (supabase/bitcalendar.sql).
+export function openDbHelp() {
+  const m = openModal(`<h2>SET UP THE DATABASE</h2>
+    <div class="mtext steps">
+      <p>You're signed in, but your 128bit account has nowhere to keep calendars yet. One-time fix, about a minute:</p>
+      <ol>
+        <li>Tap <b>COPY THE SQL</b>.</li>
+        <li>Tap <b>OPEN SUPABASE</b> (project "128bit play" → SQL Editor).</li>
+        <li>Paste it in and press <b>Run</b>.</li>
+        <li>Come back and tap <b>CHECK AGAIN</b>.</li>
+      </ol>
+    </div>
+    <div class="mbtns">
+      <button class="btn" data-act="copy">COPY THE SQL</button>
+      <button class="btn" data-act="open">OPEN SUPABASE</button>
+      <button class="btn primary" data-act="check">CHECK AGAIN</button>
+      <button class="btn" data-act="close">CLOSE</button>
+    </div>`, 'small');
+  m.addEventListener('click', async e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'close') closeModal(m);
+    if (act === 'open') N.openExternal(SQL_EDITOR);
+    if (act === 'copy') run(async () => {
+      const res = await fetch(SQL_URL);
+      if (!res.ok) throw new Error('Could not fetch the SQL, it is supabase/bitcalendar.sql in the repo');
+      await navigator.clipboard.writeText(await res.text());
+    }, 'SQL COPIED · PASTE IT IN THE SQL EDITOR');
+    if (act === 'check') {
+      await store.refreshAll();
+      if (store.dbMissing) toast('Still not there: run the SQL in Supabase, then check again');
+      else { closeModal(m); toast('DATABASE READY · YOUR CALENDAR SAVES TO YOUR ACCOUNT NOW'); }
+    }
+  });
+}
+
+// The Windows app's Google client: Google needs every app registered by its owner.
+export function openDesktopGoogle() {
+  const s = store.settings;
+  const m = openModal(`<form class="editor">
+    <h2>GOOGLE FOR THIS COMPUTER</h2>
+    <div class="mtext steps">
+      <p>Google only lets apps it knows sign in. Register Bitcalendar once (free):</p>
+      <ol>
+        <li><a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud → Credentials</a> (same project as the other Bitcalendar clients).</li>
+        <li><b>Create credentials → OAuth client ID</b>, type <b>Desktop app</b>.</li>
+        <li>Paste its client ID and secret here.</li>
+      </ol>
+    </div>
+    <label class="field"><span>CLIENT ID</span><input name="id" placeholder="xxxx.apps.googleusercontent.com" value="${esc(s.desktopClientId || '')}"></label>
+    <label class="field"><span>CLIENT SECRET</span><input name="secret" placeholder="GOCSPX-…" value="${esc(s.desktopClientSecret || '')}"></label>
+    <p class="err" hidden></p>
+    <div class="mbtns"><button type="button" class="btn" data-act="close">CANCEL</button><button type="submit" class="btn primary">SAVE + CONNECT</button></div></form>`, 'small');
+  const f = $('form', m);
+  m.addEventListener('click', e => { if (e.target.closest('[data-act=close]')) closeModal(m); });
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const id = f.elements.id.value.trim(), secret = f.elements.secret.value.trim();
+    if (!/\.apps\.googleusercontent\.com$/.test(id)) { const er = $('.err', f); er.textContent = "THAT DOESN'T LOOK LIKE A GOOGLE CLIENT ID"; er.hidden = false; return; }
+    store.setSettings({ desktopClientId: id, desktopClientSecret: secret });
+    closeModal(m);
+    connect();
   });
 }
 

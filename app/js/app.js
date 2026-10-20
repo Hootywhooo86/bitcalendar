@@ -140,9 +140,12 @@ function renderTasks() {
   }).join('') || '<p class="none">no tasks. nice.</p>';
 }
 
+let update = null; // {version, url} when a newer app is on GitHub
 function renderBanner() {
   const expired = store.googleAccounts().filter(a => a.expired);
-  $('#banner').innerHTML = (store.offline ? '<div class="bar">&#9888; OFFLINE · SHOWING WHAT THIS DEVICE SAVED. CHANGES NEED A CONNECTION.</div>' : '')
+  $('#banner').innerHTML = (store.cloud && store.dbMissing ? '<div class="bar">&#9888; BITCALENDAR\'S DATABASE ISN\'T SET UP YET, SO NOTHING CAN SAVE TO YOUR ACCOUNT <button class="btn tiny primary" data-dbfix>HOW TO FIX</button></div>' : '')
+    + (update ? `<div class="bar up">&#9733; BITCALENDAR ${V.esc(update.version)} IS OUT <button class="btn tiny primary" data-update>UPDATE</button></div>` : '')
+    + (store.offline ? '<div class="bar">&#9888; OFFLINE · SHOWING WHAT THIS DEVICE SAVED. CHANGES NEED A CONNECTION.</div>' : '')
     + expired.map(a => `<div class="bar">&#9888; GOOGLE (${V.esc(a.email)}) STOPPED SYNCING — <button class="btn tiny primary" data-reconnect="${V.esc(a.email)}">RECONNECT</button></div>`).join('');
 }
 
@@ -277,6 +280,8 @@ document.addEventListener('click', async e => {
   if (btn('#tasksBtn') || btn('#tasksClose')) { document.body.classList.toggle('tasks-open'); return renderTasks(); }
   if (btn('#moreDays')) { state.agendaDays += 30; return refresh(); }
   if (btn('[data-reconnect]')) return M.connect(btn('[data-reconnect]').dataset.reconnect);
+  if (btn('[data-dbfix]')) return M.openDbHelp();
+  if (btn('[data-update]')) { M.toast(N.platform === 'android' ? 'DOWNLOADING · OPEN IT AND TAP UPDATE' : 'DOWNLOADING THE INSTALLER'); return N.openExternal(update.url); }
   if (btn('[data-mini]')) {
     const d = D.parseYmd(btn('[data-mini]').dataset.mini);
     state.selected = d;
@@ -454,6 +459,8 @@ store.init().then(async () => {
   store.lastRefresh = Date.now();
   await load();
   checkReminders();
+  // Installed apps: is there a newer version on GitHub?
+  if (N.isNative) N.checkUpdate().then(u => { if (u) { update = u; renderBanner(); } }).catch(() => {});
   const p = new URLSearchParams(location.search);
   if (p.get('day')) { history.replaceState(null, '', location.pathname); openFromLink(p.get('day'), p.get('event')); }
 });

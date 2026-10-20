@@ -74,7 +74,14 @@ Capacitor 8 wrapping `app/` (`app.bit128.bitcalendar`, Android 7+). Everything t
 - Emailed sign-in links open the app (`app.bit128.bitcalendar://auth`). Add that to Supabase → Authentication → Redirect URLs.
 - Google is connected from the Windows app or the web (Google doesn't allow sign-in inside apps); once it's in your account, it shows on the phone too.
 
-Build: `npm ci && npm run android:apk` (needs JDK 21 + Android SDK 36) → `android/app/build/outputs/apk/debug/app-debug.apk`. The debug APK installs directly (allow "install unknown apps"). For a Play-ready signed build, make a keystore (`keytool -genkey -v -keystore bitcal.jks -alias bitcal -keyalg RSA -keysize 2048 -validity 10000`) and either put `storeFile/storePassword/keyAlias/keyPassword` in `android/keystore.properties`, or add the `BITCAL_*` secrets for CI, then `npm run android:release`.
+- **Google on the phone:** CONNECT GOOGLE uses Android's own Google account picker (Google blocks sign-in inside app web views), and fresh tokens come silently after that. Google recognizes the app by package name + signing key, so the Google Cloud project needs an **Android** OAuth client: package `app.bit128.bitcalendar`, SHA-1 `19:63:CB:2A:0E:B6:5E:36:91:33:30:31:77:F9:F2:EF:4F:A6:FF:17`.
+- **Updates:** when a newer release is on GitHub, the app shows "BITCALENDAR x.y.z IS OUT · UPDATE"; it downloads the APK and Android installs it over the old one.
+
+### Updates and the signing key
+
+Android only installs a new version over the old one when both are signed with the same key. Every release is signed with the app's one key (`bitcalendar-release.jks`, alias `bitcal`), which lives in the repository secrets: `BITCAL_KEYSTORE_BASE64` (the .jks, base64), `BITCAL_STORE_PASSWORD`, `BITCAL_KEY_ALIAS`, `BITCAL_KEY_PASSWORD`. Releases refuse to build without them. Never lose the key: a new key means everyone uninstalls once more (and the Android OAuth client needs the new SHA-1).
+
+Build: `npm ci && npm run android:release` with `android/keystore.properties` (storeFile, storePassword, keyAlias, keyPassword) or the `BITCAL_*` variables; ordinary pushes on GitHub build an unsigned test APK.
 
 ## Windows app (`desktop/`)
 
@@ -85,7 +92,7 @@ Electron, same app, plus:
 - **Google keeps syncing in the background, all day:** you sign in once in your normal browser, and the app keeps a refresh token (encrypted by Windows for your user). No hourly RECONNECT.
 - Opens emailed sign-in links (`app.bit128.bitcalendar://` is registered on install).
 
-Google setup for the desktop app: Google Cloud → Credentials → **Create OAuth client ID → Desktop app** (same project as the web client, same Calendar + Tasks APIs and test users). Put its client ID and secret in `desktop/config.json` (or the `GOOGLE_DESKTOP_CLIENT_*` secrets for CI). Desktop-app secrets aren't secret by Google's design; they ship inside the app.
+Google setup for the desktop app: Google Cloud → Credentials → **Create OAuth client ID → Desktop app** (same project as the web client, same Calendar + Tasks APIs and test users). Paste its client ID and secret into the app's **Settings** (or put them in `desktop/config.json` / the `GOOGLE_DESKTOP_CLIENT_*` secrets to build them in). Desktop-app secrets aren't secret by Google's design; they ship inside the app.
 
 Build: `cd desktop && npm ci && npm run dist` (on Windows; on Linux it needs Wine) → `desktop/dist/Bitcalendar-Setup-<version>.exe` (installer) and `Bitcalendar-<version>-portable.exe` (no install). Run from source: `npm start`. Unsigned, so Windows SmartScreen asks once: **More info → Run anyway**.
 

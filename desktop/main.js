@@ -111,12 +111,13 @@ function setAutoStart(on) { app.setLoginItemSettings({ openAtLogin: !!on, args: 
 
 ipcMain.handle('reminders', (_e, list) => { reminders.set(list); tray?.setContextMenu(trayMenu()); });
 ipcMain.handle('open-external', (_e, url) => { if (/^(https?|mailto):/.test(url)) return shell.openExternal(url); });
-ipcMain.handle('google-sign-in', async (_e, hint) => { try { return await google.signIn(hint); } finally { show(); } });
-ipcMain.handle('google-token', (_e, email) => google.accessToken(email));
+ipcMain.handle('google-sign-in', async (_e, hint, creds) => { try { return await google.signIn(hint, creds); } finally { show(); } });
+ipcMain.handle('google-token', (_e, email, creds) => google.accessToken(email, creds));
 ipcMain.handle('google-forget', (_e, email) => google.forget(email));
 ipcMain.handle('get-auto-start', () => app.getLoginItemSettings().openAtLogin);
 ipcMain.handle('set-auto-start', (_e, on) => { setAutoStart(on); tray?.setContextMenu(trayMenu()); });
 ipcMain.handle('take-links', () => pendingLinks.splice(0));
+ipcMain.handle('app-version', () => app.getVersion());
 
 app.whenReady().then(() => {
   // Serves ../app at bitcal://app/ (a real origin, so storage, modules and fetch behave like the web).

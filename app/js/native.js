@@ -90,10 +90,46 @@ export async function openExternal(url) {
   window.open(url, '_blank', 'noopener');
 }
 
-// Google: the web uses Google's popup; the desktop app signs in through the real browser and keeps
-// a refresh token (so Google keeps syncing all day). Android leaves Google to the other two.
-export const googleHere = platform !== 'android';
-export const googleRefreshes = platform === 'desktop';
-export const googleSignIn = hint => desk.googleSignIn(hint);       // → {access_token, expires_in, scope}
-export const googleToken = email => desk.googleToken(email);       // → same, or null when signed out
+// Google: the web uses Google's popup. The apps sign in the way Google allows for apps — Android with
+// the phone's own account picker (GooglePlugin.java), Windows through the real browser — and both get
+// fresh tokens without asking again, so Google keeps syncing.
+const googlePlugin = async () => (await cap()).registerPlugin('BitcalGoogle');
+export const googleHere = true;
+export const googleRefreshes = platform !== 'web';
+// → {access_token, expires_in, scope}
+export async function googleSignIn(hint, creds) {
+  if (platform === 'desktop') return desk.googleSignIn(hint, creds);
+  return (await googlePlugin()).authorize({ interactive: true, email: hint || '' });
+}
+// → same, or null when Google wants the person to sign in again
+export async function googleToken(email, creds) {
+  if (platform === 'desktop') return desk.googleToken(email, creds);
+  try { return await (await googlePlugin()).authorize({ interactive: false, email }); } catch { return null; }
+}
 export const googleForget = email => desk?.googleForget(email);
+
+// ---- updates ----
+
+const REPO = 'Hootywhooo86/bitcalendar';
+export async function appVersion() {
+  if (platform === 'desktop') return desk.appVersion();
+  if (platform === 'android') return (await (await cap()).App.getInfo()).version;
+  return null;
+}
+const newer = (a, b) => {
+  const pa = a.replace(/^v/, '').split('.').map(Number), pb = b.replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+};
+// The newest GitHub release, if it's newer than this app: {version, url} (the APK or the Windows installer).
+export async function checkUpdate() {
+  const mine = await appVersion().catch(() => null);
+  if (!mine) return null;
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
+  if (!res.ok) return null;
+  const rel = await res.json();
+  if (!rel.tag_name || !newer(rel.tag_name, mine)) return null;
+  const want = platform === 'android' ? /\.apk$/i : /Setup.*\.exe$/i;
+  const asset = (rel.assets || []).find(a => want.test(a.name));
+  return asset ? { version: rel.tag_name.replace(/^v/, ''), url: asset.browser_download_url } : null;
+}

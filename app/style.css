@@ -70,6 +70,7 @@ body.busy #rangeTitle::after { content: " ▪"; color: var(--orange); animation:
   background: #2a1a05; color: var(--orange); border-bottom: 3px solid var(--orange); padding: 8px 16px;
   font-size: 9px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
+#banner .bar.up { background: #1d1236; color: var(--purple); border-bottom-color: var(--purple); }
 
 /* layout */
 .layout { flex: 1; display: grid; grid-template-columns: 300px 1fr; min-height: 0; }

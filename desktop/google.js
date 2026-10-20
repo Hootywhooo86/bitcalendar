@@ -14,9 +14,12 @@ const DONE_PAGE = (ok, msg) => `<!doctype html><meta charset="utf-8"><title>Bitc
 <h1 style="color:${ok ? '#b388ff' : '#ff5c7a'};font-size:22px">${ok ? 'YOU\'RE IN' : 'THAT DIDN\'T WORK'}</h1>
 <p style="color:#9e9e9e">${msg}</p></div>`;
 
-function createGoogle({ config, openBrowser, fetch, store }) {
+function createGoogle({ config: built, openBrowser, fetch, store }) {
+  // The client comes from the app's Settings when filled in there, else from desktop/config.json.
+  let config = built;
+  const use = creds => { config = creds && creds.googleClientId ? { ...built, ...creds } : built; };
   const need = () => {
-    if (!config.googleClientId) throw new Error('Add the Google desktop client ID to desktop/config.json (README → Windows app)');
+    if (!config.googleClientId) throw new Error('Google sign-in isn\'t set up yet: paste a Google "Desktop app" client ID + secret into Settings (README → Windows app)');
   };
 
   async function token(params) {
@@ -35,7 +38,8 @@ function createGoogle({ config, openBrowser, fetch, store }) {
   }
 
   // Opens Google in the browser; resolves {access_token, expires_in, scope} once the person is back.
-  async function signIn(hint) {
+  async function signIn(hint, creds) {
+    use(creds);
     need();
     const verifier = b64u(crypto.randomBytes(32));
     const challenge = b64u(crypto.createHash('sha256').update(verifier).digest());
@@ -71,7 +75,8 @@ function createGoogle({ config, openBrowser, fetch, store }) {
   }
 
   // A fresh access token for an account signed in before, or null if Google signed it out.
-  async function accessToken(email) {
+  async function accessToken(email, creds) {
+    use(creds);
     need();
     const refresh = store.get(email);
     if (!refresh) return null;
