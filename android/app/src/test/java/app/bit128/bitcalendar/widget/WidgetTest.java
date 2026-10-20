@@ -73,6 +73,43 @@ public class WidgetTest {
         assertEquals("app.bit128.bitcalendar://open?day=" + Snapshot.ymd(first), opened.getDataString());
     }
 
+    // The landing page mock, on a home screen: TODAY box with what's on, dot on the 25th.
+    @Test public void monthLooksLikeTheMock() throws Exception {
+        long now = System.currentTimeMillis();
+        Calendar today = Calendar.getInstance();
+        today.set(Calendar.HOUR_OF_DAY, 7); today.set(Calendar.MINUTE, 0);
+        Calendar sat = plus(today, (Calendar.SATURDAY - today.get(Calendar.DAY_OF_WEEK) + 7) % 7);
+        JSONArray ev = new JSONArray()
+            .put(event("Morning quest: log workout", today.getTimeInMillis(), today.getTimeInMillis() + 3600_000L, false, "#ff9f1c"))
+            .put(event("Birthday dinner @ Nana's", sat.getTimeInMillis() + 10 * 3600_000L, sat.getTimeInMillis() + 12 * 3600_000L, false, "#ff9f1c"));
+        Snapshot.save(c, new JSONObject().put("v", 1).put("at", now).put("weekStart", 0).put("events", ev)
+            .put("tasks", new JSONArray().put(new JSONObject().put("t", "Call mom back").put("d", Snapshot.ymd(Calendar.getInstance())))).toString());
+        assertEquals(java.util.Arrays.asList("Morning quest: log workout", "Call mom back"), Snapshot.load(c).today());
+        int id = widgets.createWidget(MonthWidget.class, R.layout.widget_month);
+        View v = widgets.getViewFor(id);
+        save(bitmap(v), "month-mock.png");
+        // Rows the month doesn't need are gone, so the tap zones match the drawing.
+        int rows = MonthWidget.weeks(firstOfMonth(), MonthWidget.gridStart(firstOfMonth(), 0));
+        assertEquals(rows > 5 ? View.VISIBLE : View.GONE, v.findViewById(R.id.r5).getVisibility());
+        v.findViewById(R.id.today_panel).performClick();
+        Intent opened = shadowOf((Application) c).getNextStartedActivity();
+        assertEquals("app.bit128.bitcalendar://open?day=" + Snapshot.ymd(Calendar.getInstance()), opened.getDataString());
+    }
+
+    @Test public void weekRowsFitTheMonth() {
+        assertEquals(4, weeksOf(2026, Calendar.FEBRUARY, 0)); // starts Sunday, 28 days
+        assertEquals(6, weeksOf(2026, Calendar.AUGUST, 0));   // starts Saturday, 31 days
+        assertEquals(5, weeksOf(2026, Calendar.OCTOBER, 0));
+        assertEquals(5, weeksOf(2026, Calendar.FEBRUARY, 1)); // Monday weeks push it to 5
+    }
+
+    private static int weeksOf(int y, int m, int weekStart) {
+        Calendar month = Calendar.getInstance();
+        month.clear();
+        month.set(y, m, 1);
+        return MonthWidget.weeks(month, MonthWidget.gridStart(month, weekStart));
+    }
+
     @Test public void monthArrowsFlipTheMonth() throws Exception {
         Snapshot.save(c, sample());
         int id = widgets.createWidget(MonthWidget.class, R.layout.widget_month);

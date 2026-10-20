@@ -84,37 +84,46 @@ with open(f'{RES}/values/ic_launcher_background.xml', 'w') as fh:
     fh.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0D0D1A</color>\n</resources>\n')
 
 
-def widget_preview_month(w=500, h=500):
+def widget_preview_month(w=500, h=640):
+    """Same layout as MonthWidget.draw(): margins 7%/6%, header 2, letters 1, 5 weeks x 2, TODAY 5.5."""
     im = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     d.rounded_rectangle([0, 0, w - 1, h - 1], radius=35, fill=LINE)
     d.rounded_rectangle([9, 9, w - 10, h - 10], radius=28, fill=PANEL)
-    px, py, cw, ch = w * .04, h * .04, w * .92, h * .92
-    u, col = ch / 15, cw / 7
-    d.text((px + col * .1, py + u * .6), 'OCTOBER 2026', font=ImageFont.truetype(FONT, int(u * .5)), fill=PURPLE)
+    px, py, cw, ch = w * .07, h * .06, w * .86, h * .88
+    u, col = ch / (3 + 10 + 5.5), cw / 7
+    d.text((px + col * .1, py + u * .55), 'OCTOBER 2026', font=ImageFont.truetype(FONT, int(min(u * .55, col * .5))), fill=PURPLE)
+    for k, x0 in enumerate((px + col * 5, px + col * 6)):
+        s_ = min(col, 2 * u) * .7
+        bx, by = x0 + (col - s_) / 2, py + (2 * u - s_) / 2
+        d.rounded_rectangle([bx, by, bx + s_, by + s_], radius=6, fill='#2b2b45')
+        cx, cy, a = bx + s_ / 2, by + s_ / 2, s_ * .18
+        d.polygon([(cx + a * .7, cy - a), (cx + a * .7, cy + a), (cx - a * .9, cy)] if k == 0 else [(cx - a * .7, cy - a), (cx - a * .7, cy + a), (cx + a * .9, cy)], fill=TEXT)
     for i, ch_ in enumerate('SMTWTFS'):
-        f = ImageFont.truetype(FONT, int(u * .4))
-        d.text((px + col * (i + .5), py + u * 2.5), ch_, font=f, fill=DIM, anchor='mm')
+        d.text((px + col * (i + .5), py + u * 2.5), ch_, font=ImageFont.truetype(FONT, int(min(u * .45, col * .3))), fill=DIM, anchor='mm')
     f = ImageFont.truetype(FONT, int(min(col, 2 * u) * .3))
-    for i in range(42):
+    for i in range(35):
         day = i - 3
         x, y = px + col * (i % 7), py + u * 3 + u * 2 * (i // 7)
         g = col * .06
-        other = not (1 <= day <= 31)
-        today = day == 19
-        fill = PURPLE if today else CELL
+        other, today = not (1 <= day <= 31), day == 20
         cell = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-        ImageDraw.Draw(cell).rounded_rectangle([x + g, y + g, x + col - g, y + 2 * u - g], radius=6, fill=fill)
+        ImageDraw.Draw(cell).rounded_rectangle([x + g, y + g, x + col - g, y + 2 * u - g], radius=6, fill=PURPLE if today else CELL)
         if other:
             cell.putalpha(cell.getchannel('A').point(lambda a: a // 4))
         im.alpha_composite(cell)
-        num = (day - 1) % 31 + 1 if other else day
-        busy = day in (5, 12, 19, 20, 21, 22, 24, 26, 28)
-        cy = y + u - (u * .2 if busy else 0)
-        d.text((x + col / 2, cy), str(num), font=f, fill=BG if today else (SOFT if not other else '#4a4a5e'), anchor='mm')
+        busy = day in (20, 25)
+        d.text((x + col / 2, y + u - (u * .2 if busy else 0)), str((day - 1) % 30 + 27 if other else day), font=f, fill=BG if today else (SOFT if not other else '#4a4a5e'), anchor='mm')
         if busy:
-            r = col * .05
-            d.rectangle([x + col / 2 - r, y + 2 * u * .72 - r, x + col / 2 + r, y + 2 * u * .72 + r], fill=BG if today else ORANGE)
+            r, cy = min(col, 2 * u) * .065, y + 2 * u * .73
+            d.ellipse([x + col / 2 - r, cy - r, x + col / 2 + r, cy + r], fill=BG if today else ORANGE)
+    ty = py + u * 13.6
+    d.rounded_rectangle([px, ty, px + cw, ty + u * 4.9], radius=8, fill=LINE)
+    d.rounded_rectangle([px + 3, ty + 3, px + cw - 3, ty + u * 4.9 - 3], radius=6, fill='#101024')
+    ft = ImageFont.truetype(FONT, int(min(u * .52, col * .27)))
+    d.text((px + col * .32, ty + col * .32), 'TODAY', font=ft, fill=ORANGE)
+    for k, line in enumerate(['+ Morning quest: log', 'workout', '+ Call mom back']):
+        d.text((px + col * .32, ty + col * .32 + ft.size * (2.2 + k * 1.45)), line, font=ft, fill=SOFT)
     return im
 
 

@@ -22,6 +22,7 @@ public final class Snapshot {
 
     public final List<Event> events = new ArrayList<>();
     public final Set<String> taskDays = new HashSet<>();
+    public final List<String[]> tasks = new ArrayList<>(); // {title, YYYY-MM-DD}
     public int weekStart = 0;
     public boolean h24 = false;
     public boolean empty = true;
@@ -51,7 +52,11 @@ public final class Snapshot {
                 s.events.add(e);
             }
             JSONArray ts = o.optJSONArray("tasks");
-            for (int i = 0; ts != null && i < ts.length(); i++) s.taskDays.add(ts.getJSONObject(i).optString("d"));
+            for (int i = 0; ts != null && i < ts.length(); i++) {
+                JSONObject t = ts.getJSONObject(i);
+                s.taskDays.add(t.optString("d"));
+                s.tasks.add(new String[] { t.optString("t", ""), t.optString("d") });
+            }
             s.empty = false;
         } catch (Exception ignored) { }
         return s;
@@ -59,6 +64,25 @@ public final class Snapshot {
 
     static String ymd(Calendar c) {
         return String.format(Locale.US, "%04d-%02d-%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
+    }
+
+    /** What's on today, like the landing mock's TODAY box: events (all-day first, then by time), then tasks due. */
+    public List<String> today() {
+        Calendar d = Calendar.getInstance();
+        d.set(Calendar.HOUR_OF_DAY, 0); d.set(Calendar.MINUTE, 0); d.set(Calendar.SECOND, 0); d.set(Calendar.MILLISECOND, 0);
+        long start = d.getTimeInMillis();
+        d.add(Calendar.DAY_OF_MONTH, 1);
+        long end = d.getTimeInMillis();
+        String key = ymd(Calendar.getInstance());
+        List<Event> on = new ArrayList<>();
+        for (Event e : events) {
+            if (e.allDay ? e.start < end && e.end > start : e.start < end && (e.end > start || e.start >= start)) on.add(e);
+        }
+        on.sort((a, b) -> a.allDay != b.allDay ? (a.allDay ? -1 : 1) : Long.compare(a.start, b.start));
+        List<String> out = new ArrayList<>();
+        for (Event e : on) out.add(e.title);
+        for (String[] t : tasks) if (key.equals(t[1])) out.add(t[0]);
+        return out;
     }
 
     /** Every day (YYYY-MM-DD) that has something on it. */
